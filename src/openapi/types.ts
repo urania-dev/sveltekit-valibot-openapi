@@ -1,0 +1,424 @@
+import type { BaseIssue, BaseSchema } from 'valibot';
+
+/**
+ * A Valibot schema accepted by this library.
+ *
+ * The generics are fixed to `unknown` to ensure stable public types while
+ * preserving compatibility with Valibot's JSON Schema transformer.
+ */
+export type AnySchema<TInput = unknown,TOutput = unknown> = BaseSchema<TInput, TOutput, BaseIssue<unknown>>;
+
+/**
+ * Describes a single documented API operation.
+ *
+ * This structure is exported from route modules and consumed by the OpenAPI
+ * generator. Each operation corresponds to one HTTP method for a given path.
+ *
+ * @template TQuerySchema
+ * Valibot schema describing the URL query parameters.
+ *
+ * @template TBodySchema
+ * Valibot schema describing the request body.
+ *
+ * @template TResponses
+ * Map of status codes to response definitions.
+ */
+export interface EndpointDef<
+  TQuerySchema extends AnySchema | undefined = AnySchema | undefined,
+  TBodySchema extends AnySchema | undefined = AnySchema | undefined,
+  TResponses extends EndpointResponses = EndpointResponses
+> {
+  /**
+   * Valibot schema describing the request body.
+   *
+   * For a single JSON body, pass the schema directly:
+   *
+   * ```ts
+   * body: MyJsonSchema
+   * // → requestBody.content['application/json']
+   * ```
+   *
+   * For multiple media types, wrap schemas in a `content` map:
+   *
+   * ```ts
+   * body: {
+   *   content: {
+   *     'application/json': JsonSchema,
+   *     'multipart/form-data': FormSchema
+   *   }
+   * }
+   * ```
+   */
+  body?:
+    | {
+        content: Record<string, AnySchema>;
+        /** Whether the request body is required. Defaults to `true`. */
+        required?: boolean;
+      }
+    | TBodySchema;
+
+  /**
+   * Marks this endpoint as deprecated in the generated OpenAPI spec.
+   */
+  deprecated?: boolean;
+
+  /** Optional detailed description. */
+  description?: string;
+
+  /** HTTP method implemented by this operation. */
+  method: HttpMethod;
+
+  /** OperationId used by OpenAPI code generators. */
+  operationId?: string;
+  
+  /**
+   * Absolute OpenAPI path for the operation.
+   * If omitted, the path is inferred from the file location.
+   */
+  path?: string;
+
+  
+  /**
+   * Valibot schema describing the query string parameters.
+   *
+   * When `query` is an object schema, each top-level field is converted
+   * into an OpenAPI `in: "query"` parameter, with required/optional flags
+   * derived from the Valibot schema.
+   */
+  query?: TQuerySchema;
+
+  /** HTTP responses for this operation. */
+  responses: TResponses;
+
+  /**
+   * Security requirements applied to this operation.
+   *
+   * If omitted, the generator falls back to the top-level `security`
+   * defined on `OpenApiOptions` (if any).
+   */
+  security?: SecurityRequirementObject[];
+  
+  /** Short title for documentation. */
+  summary?: string;
+
+  
+  /** Tags used to group related operations in API documentation. */
+  tags?: string[];
+}
+
+/**
+ * Mapping of HTTP status codes to response definitions.
+ *
+ * @template TSchemaMap
+ * A record where each key is a status code and the value is a Valibot
+ * schema (or `undefined`). This is transformed into a map of `ResponseDef`s.
+ */
+export type EndpointResponses<
+  TSchemaMap extends Record<PropertyKey, AnySchema | undefined> = Record<
+    number,
+    AnySchema | undefined
+  >
+> = {
+  [Status in keyof TSchemaMap]: ResponseDef<
+    Extract<TSchemaMap[Status], AnySchema | undefined>
+  >;
+};
+
+/**
+ * Shape expected from `import.meta.glob` when scanning for API modules.
+ *
+ * Each key is a file path and each value is a loader function that resolves
+ * either to a route module (possibly containing `_openapi`) or to another
+ * loader function. This abstraction allows the OpenAPI handler to support
+ * Vite’s dynamic import variations.
+ */
+export type GlobModules<
+  TEndpoint extends EndpointDef = EndpointDef
+> = Record<
+  string,
+  () => Promise<(() => Promise<unknown>) | MultiEndpointModule<TEndpoint>>
+>;
+
+/**
+ * HTTP methods that may be documented for a SvelteKit API route.
+ *
+ * These correspond directly to SvelteKit route handler exports such as:
+ * `export const GET`, `export const POST`, etc.
+ *
+ * This type is used by `EndpointDef.method`.
+ */
+export type HttpMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
+
+/**
+ * Lowercase form of `HttpMethod`, used within the OpenAPI `paths` object.
+ *
+ * @example
+ * "GET" → "get"
+ */
+export type HttpMethodLower = Lowercase<HttpMethod>;
+
+/**
+ * A permissive JSON Schema type representing the output of
+ * `@valibot/to-json-schema`.
+ *
+ * This type models the structural shape of JSON Schema without enforcing
+ * strict keyword validation, and it allows vendor extensions through an
+ * index signature.
+ * 
+ * NOTE:
+ * - Valibot `date()` is normalized to `{ type: "string", format: "date-time" }`
+ *   during OpenAPI generation. This avoids the known limitation in the
+ *   Valibot JSON Schema transformer while keeping OpenAPI output valid.
+ */
+export type JsonSchema =
+  | {
+      [keyword: string]: unknown;
+      $defs?: Record<string, JsonSchema>;
+      $id?: string;
+      $ref?: string;
+      $schema?: string;
+      additionalProperties?: boolean | JsonSchema;
+      allOf?: JsonSchema[];
+      anyOf?: JsonSchema[];
+      const?: boolean | null | number | string;
+      default?: unknown;
+      description?: string;
+      enum?: (boolean | null | number | string)[];
+      examples?: unknown[];
+      format?: string;
+      items?: JsonSchema | JsonSchema[];
+      not?: JsonSchema;
+      oneOf?: JsonSchema[];
+      patternProperties?: Record<string, JsonSchema>;
+      prefixItems?: JsonSchema[];
+      properties?: Record<string, JsonSchema>;
+      required?: string[];
+      title?: string;
+      type?: string | string[];
+    }
+  | boolean;
+
+/**
+ * Module shape for API routes that export one or more documented operations.
+ *
+ * Route modules may declare multiple HTTP methods for the same path.
+ * The `_openapi` record maps each supported method to its corresponding
+ * `EndpointDef`.
+ *
+ * @example
+ * export const _openapi = {
+ *   GET: defineEndpoint({ ... }),
+ *   POST: defineEndpoint({ ... })
+ * };
+ */
+export type MultiEndpointModule<
+  TEndpoint extends EndpointDef = EndpointDef
+> = {
+  _openapi?: Partial<Record<HttpMethod, TEndpoint>>;
+};
+
+/**
+ * OpenAPI OAuth2 flow object.
+ *
+ * This is a minimal representation suitable for documenting scopes and
+ * the involved URLs for a given flow.
+ */
+export interface OAuthFlowObject {
+  authorizationUrl?: string;
+  refreshUrl?: string;
+  scopes: Record<string, string>;
+  tokenUrl?: string;
+}
+
+/**
+ * Container for the set of OAuth2 flows supported by a security scheme.
+ */
+export interface OAuthFlowsObject {
+  authorizationCode?: OAuthFlowObject;
+  clientCredentials?: OAuthFlowObject;
+  implicit?: OAuthFlowObject;
+  password?: OAuthFlowObject;
+}
+
+/**
+ * OpenAPI Components section.
+ *
+ * This library currently exposes `securitySchemes`, and may be extended
+ * in the future to support more component types.
+ */
+export interface OpenApiComponents {
+  securitySchemes?: Record<string, SecuritySchemeObject>;
+}
+
+/** Top-level OpenAPI `info` section. */
+export interface OpenApiInfo {
+  description?: string;
+  title?: string;
+  version?: string;
+}
+
+/** Media type object inside an OpenAPI response or request body. */
+export interface OpenApiMediaTypeObject {
+  schema?: JsonSchema;
+}
+
+/**
+ * Options available when generating the OpenAPI specification.
+ *
+ * - `basePath` filters included routes by prefix
+ * - `info` configures title, version, and description
+ * - `servers` defines the list of server URLs
+ * - `securitySchemes` declares the available authentication mechanisms
+ * - `security` sets default security requirements for all operations
+ */
+export interface OpenApiOptions {
+  basePath?: string;
+  info?: OpenApiInfo;
+  security?: SecurityRequirementObject[];
+  securitySchemes?: Record<string, SecuritySchemeObject>;
+  servers?: OpenApiServer[];
+}
+
+/** OpenAPI Parameter Object. */
+export interface OpenApiParameterObject {
+  description?: string;
+  in: 'cookie' | 'header' | 'path' | 'query';
+  name: string;
+  required?: boolean;
+  schema?: JsonSchema;
+}
+
+/** OpenAPI Request Body Object. */
+export interface OpenApiRequestBodyObject {
+  content: Record<string, OpenApiMediaTypeObject>;
+  required?: boolean;
+}
+
+/** OpenAPI Response Object. */
+export interface OpenApiResponseObject {
+  content?: Record<string, OpenApiMediaTypeObject>;
+  description: string;
+}
+
+/** OpenAPI map of status code → response. */
+export type OpenApiResponsesObject = Record<string, OpenApiResponseObject>;
+
+/** OpenAPI `servers` entry. */
+export interface OpenApiServer {
+  description?: string;
+  url: string;
+}
+
+/**
+ * Structure returned by the generated OpenAPI handler.
+ *
+ * This representation follows OpenAPI 3.1 and is suitable for consumers
+ * such as Scalar, Redoc, Swagger UI, and OpenAPI code generators.
+ */
+export interface OpenApiSpec {
+  components?: OpenApiComponents;
+  info: {
+    description?: string;
+  } & Required<Pick<OpenApiInfo, 'title' | 'version'>>;
+  openapi: '3.1.0';
+  paths: PathsObject;
+  security?: SecurityRequirementObject[];
+  servers?: OpenApiServer[];
+}
+
+/**
+ * A documented HTTP operation inside OpenAPI's `paths` object.
+ *
+ * The request body and parameters are attached by the generator when
+ * applicable, based on the endpoint definition's `body` and `query`.
+ */
+export interface OperationObject {
+  /** Marks the operation as deprecated in the docs. */
+  deprecated?: boolean;
+  description?: string;
+  /** Unique identifier for this operation (per path + method). */
+  operationId?: string;
+  parameters?: OpenApiParameterObject[];
+  requestBody?: OpenApiRequestBodyObject;
+  responses: OpenApiResponsesObject;
+  security?: SecurityRequirementObject[];
+  summary?: string;
+  tags?: string[];
+}
+
+/**
+ * OpenAPI `paths` representation:
+ *
+ * `/path`: {
+ *   get?: OperationObject;
+ *   post?: OperationObject;
+ *   ...
+ * }
+ */
+export type PathsObject = Record<
+  string,
+  Partial<Record<HttpMethodLower, OperationObject>>
+>;
+
+/**
+ * Describes a single HTTP response for an operation.
+ *
+ * @template TSchema
+ * A Valibot schema representing the response body for this status code, or
+ * `undefined` if the response does not return a typed body.
+ */
+export interface ResponseDef<
+  TSchema extends AnySchema | undefined = AnySchema | undefined
+> {
+  /**
+   * Optional mapping of `mediaType → Valibot schema`.
+   *
+   * Use this to model multiple response representations for a status code,
+   * such as JSON, plain text, or binary formats.
+   */
+  content?: Record<string, AnySchema>;
+
+  /** Human-readable explanation included in the OpenAPI output. */
+  description?: string;
+
+  /**
+   * Convenience field for a single `application/json` response.
+   *
+   * When `schema` is provided and no `application/json` entry exists in
+   * `content`, the generator will emit it as a JSON media type.
+   */
+  schema?: TSchema;
+}
+
+/**
+ * OpenAPI Security Requirement Object.
+ *
+ * The keys are names of security schemes defined under
+ * `components.securitySchemes`, and the values are the required scopes.
+ */
+export type SecurityRequirementObject = Record<string, string[]>;
+
+/**
+ * OpenAPI Security Scheme Object.
+ *
+ * This is used to describe how clients authenticate with the API
+ * (API keys, HTTP auth, OAuth2, OpenID Connect).
+ */
+export interface SecuritySchemeObject {
+  bearerFormat?: string;
+  description?: string;
+
+  // oauth2
+  flows?: OAuthFlowsObject;
+  in?: 'cookie' | 'header' | 'query';
+
+  // apiKey
+  name?: string;
+  // openIdConnect
+  openIdConnectUrl?: string;
+
+  // http
+  scheme?: string;
+
+  type: 'apiKey' | 'http' | 'oauth2' | 'openIdConnect';
+}

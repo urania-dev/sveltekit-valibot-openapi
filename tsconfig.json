@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    // Emit ONLY .d.ts (no JS)
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "dist",
+
+    // Environment
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "node",
+
+    // Type safety
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+
+    // Bundler-friendly but not too strict for libraries
+    "verbatimModuleSyntax": true,
+
+    // Needed for preserving ESM exports
+    "isolatedModules": true,
+
+    // Avoid clutter
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+
+    // Allow modern TS features
+    "resolveJsonModule": true
+  },
+
+  "include": ["src"],
+  "exclude": ["dist", "node_modules"]
+}
