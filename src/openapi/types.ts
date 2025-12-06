@@ -9,6 +9,14 @@ import type { BaseIssue, BaseSchema } from 'valibot';
 export type AnySchema<TInput = unknown,TOutput = unknown> = BaseSchema<TInput, TOutput, BaseIssue<unknown>>;
 
 /**
+ * A schema accepted by the library or a Promise resolving to one.
+ *
+ * Many projects produce schemas asynchronously (e.g. generated or loaded
+ * dynamically). `SchemaLike` accepts either a `AnySchema` or a
+ * `Promise<AnySchema>` so route authors don't need to cast.
+ */
+
+/**
  * Describes a single documented API operation.
  *
  * This structure is exported from route modules and consumed by the OpenAPI
@@ -24,8 +32,8 @@ export type AnySchema<TInput = unknown,TOutput = unknown> = BaseSchema<TInput, T
  * Map of status codes to response definitions.
  */
 export interface EndpointDef<
-  TQuerySchema extends AnySchema | undefined = AnySchema | undefined,
-  TBodySchema extends AnySchema | undefined = AnySchema | undefined,
+  TQuerySchema extends AnySchema | Promise<AnySchema> | undefined = AnySchema | Promise<AnySchema> | undefined,
+  TBodySchema extends AnySchema | Promise<AnySchema> | undefined = AnySchema | Promise<AnySchema> | undefined,
   TResponses extends EndpointResponses = EndpointResponses
 > {
   /**
@@ -50,8 +58,8 @@ export interface EndpointDef<
    * ```
    */
   body?:
-    | {
-        content: Record<string, AnySchema>;
+      | {
+        content: Record<string, AnySchema | Promise<AnySchema>>;
         /** Whether the request body is required. Defaults to `true`. */
         required?: boolean;
       }
@@ -114,13 +122,13 @@ export interface EndpointDef<
  * schema (or `undefined`). This is transformed into a map of `ResponseDef`s.
  */
 export type EndpointResponses<
-  TSchemaMap extends Record<PropertyKey, AnySchema | undefined> = Record<
+  TSchemaMap extends Record<PropertyKey, AnySchema | Promise<AnySchema> | undefined> = Record<
     number,
-    AnySchema | undefined
+    AnySchema | Promise<AnySchema> | undefined
   >
 > = {
   [Status in keyof TSchemaMap]: ResponseDef<
-    Extract<TSchemaMap[Status], AnySchema | undefined>
+    Extract<TSchemaMap[Status], AnySchema | Promise<AnySchema> | undefined>
   >;
 };
 
@@ -366,7 +374,7 @@ export type PathsObject = Record<
  * `undefined` if the response does not return a typed body.
  */
 export interface ResponseDef<
-  TSchema extends AnySchema | undefined = AnySchema | undefined
+  TSchema extends AnySchema | Promise<AnySchema> | undefined = AnySchema | Promise<AnySchema> | undefined
 > {
   /**
    * Optional mapping of `mediaType → Valibot schema`.
@@ -374,7 +382,7 @@ export interface ResponseDef<
    * Use this to model multiple response representations for a status code,
    * such as JSON, plain text, or binary formats.
    */
-  content?: Record<string, AnySchema>;
+  content?: Record<string, AnySchema | Promise<AnySchema>>;
 
   /** Human-readable explanation included in the OpenAPI output. */
   description?: string;
