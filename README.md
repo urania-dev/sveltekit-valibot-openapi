@@ -1,10 +1,11 @@
-# SvelteKit + Valibot → OpenAPI 3.1
+# Valibot → OpenAPI 3.1 (SvelteKit-first, framework-agnostic)
 
-Generate an OpenAPI 3.1 specification from your SvelteKit routes and Valibot
-schemas — **no runtime magic**, **no validation side-effects**, just clean
-documentation.
+Generate an OpenAPI 3.1 specification from your Valibot schemas and lightweight
+endpoint metadata — **no runtime magic**, **no validation side-effects**, just
+clean documentation.
 
-- 🧩 Works with SvelteKit `+server` routes
+- 🧩 First-class support for SvelteKit `+server` routes
+- 🔌 Framework-agnostic spec generator (`createOpenApiHandler`)
 - ✅ Uses Valibot schemas for types **and** OpenAPI generation
 - 🧾 Supports multiple request/response media types
 - 🔍 Emits typed query parameters as OpenAPI `parameters`
@@ -25,8 +26,11 @@ pnpm add @uraniadev/sveltekit-valibot-openapi valibot @valibot/to-json-schema
 
 ## 📘 Defining endpoints
 
-Inside your SvelteKit route modules, export an `_openapi` object.
+Inside your route modules, export an `_openapi` object.
 Each key is an HTTP method, and each value comes from `defineEndpoint`.
+
+The example below uses SvelteKit, but the `_openapi` pattern works in any
+framework as long as you can pass the modules into the spec generator.
 
 ```ts
 // src/routes/api/todos/+server.ts
@@ -80,15 +84,23 @@ export const POST: RequestHandler = async () => new Response("...");
 
 ---
 
-## 📡 Creating the OpenAPI route
+## 📡 Generating and exposing the OpenAPI spec
+
+`createOpenApiHandler` now returns the **OpenAPI spec object**, not a
+framework handler. You can use it wherever you like.
+
+### SvelteKit example
 
 ```ts
 // src/routes/openapi/+server.ts
+import type { RequestHandler } from "./$types";
+import { json } from "@sveltejs/kit";
 import { createOpenApiHandler } from "@uraniadev/sveltekit-valibot-openapi";
 
-export const GET = createOpenApiHandler(
-  import.meta.glob("../api/**/+server.{ts,js}"),
-  {
+const modules = import.meta.glob("../api/**/+server.{ts,js}");
+
+export const GET: RequestHandler = async () => {
+  const spec = await createOpenApiHandler(modules, {
     basePath: "/api",
     info: {
       title: "My API",
@@ -107,8 +119,10 @@ export const GET = createOpenApiHandler(
       },
     },
     security: [{ bearerAuth: [] }],
-  }
-);
+  });
+
+  return json(spec);
+};
 ```
 
 Now visit:
@@ -119,6 +133,29 @@ Now visit:
 
 …and you get your live OpenAPI 3.1 JSON.
 Point Scalar, Swagger UI, Redoc, or Postman at it.
+
+### Non-SvelteKit / generic usage
+
+As long as you can build a `GlobModules` map (or something compatible),
+you can generate the spec anywhere:
+
+```ts
+import { createOpenApiHandler } from "@uraniadev/sveltekit-valibot-openapi";
+
+const modules = import.meta.glob("./routes/**/route.{ts,js}");
+
+async function buildSpec() {
+  const spec = await createOpenApiHandler(modules, {
+    info: {
+      title: "My Service",
+      version: "1.0.0",
+    },
+  });
+
+  // Write to file, feed into a UI, etc.
+  console.log(JSON.stringify(spec, null, 2));
+}
+```
 
 ---
 
@@ -224,10 +261,12 @@ defineEndpoint({
 
 ## 🔐 Authentication
 
-### Global
+### Global security (any framework)
+
+You configure security the same way – directly on the spec generator:
 
 ```ts
-createOpenApiHandler(glob, {
+const spec = await createOpenApiHandler(glob, {
   securitySchemes: {
     bearerAuth: {
       type: "http",
@@ -246,7 +285,7 @@ defineEndpoint({
   method: "GET",
   path: "/api/public",
   responses: { 200: { description: "OK" } },
-  security: [], // no auth
+  security: [], // no auth for this operation
 });
 ```
 

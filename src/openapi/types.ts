@@ -140,12 +140,10 @@ export type GlobModules<
 >;
 
 /**
- * HTTP methods that may be documented for a SvelteKit API route.
+ * HTTP methods that may be documented for an API route.
  *
- * These correspond directly to SvelteKit route handler exports such as:
- * `export const GET`, `export const POST`, etc.
- *
- * This type is used by `EndpointDef.method`.
+ * This type is used by `EndpointDef.method`. In SvelteKit, these correspond
+ * directly to route handler exports such as `export const GET`, `export const POST`, etc.
  */
 export type HttpMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
 

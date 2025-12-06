@@ -26,9 +26,8 @@
     "url": "git+https://github.com/urania-dev/sveltekit-valibot-openapi.git"
   },
   "peerDependencies": {
-    "@sveltejs/kit": "^2.0.0",
-    "valibot": "^1.0.0",
-    "@valibot/to-json-schema": "^1.0.0"
+    "@valibot/to-json-schema": "^1.0.0",
+    "valibot": "^1.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

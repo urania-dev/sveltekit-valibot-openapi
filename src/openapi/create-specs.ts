@@ -159,19 +159,40 @@ export function convertResponses(
 }
 
 /**
- * Creates a SvelteKit `GET` request handler that generates a live OpenAPI 3.1
- * specification for all routes matched by an `import.meta.glob` call.
+ * Generates an OpenAPI 3.1 specification object for all routes matched by an
+ * `import.meta.glob` call.
+ *
+ * This helper collects endpoint metadata from the provided modules and
+ * returns a Promise resolving to a complete `OpenApiSpec` object.
+ *
+ * The function is framework-agnostic: you can use the resulting spec in
+ * SvelteKit, Express, Astro, a CLI tool, etc. All you need is a map of
+ * modules that expose `_openapi` endpoint definitions.
+ *
+ * To expose the spec over HTTP in SvelteKit, call this function from a GET
+ * handler and return the result as JSON, for example:
+ *
+ *   import { json } from '@sveltejs/kit';
+ *
+ *   export async function GET() {
+ *     const spec = await createOpenApiHandler(
+ *       import.meta.glob('../api/**\/+server.{ts,js}'),
+ *       options
+ *     );
+ *
+ *     return json(spec);
+ *   }
  *
  * @param modules  Glob-imported API route modules
  * @param options  Optional OpenAPI metadata (title, version, servers, auth)
- * @returns        A SvelteKit `GET` handler producing an OpenAPI JSON document
+ * @returns        A Promise resolving to an `OpenApiSpec` object
  */
 export async function createOpenApiHandler<
   TEndpoint extends EndpointDef = EndpointDef
 >(
   modules: GlobModules<TEndpoint>,
   options: OpenApiOptions = {}
-):Promise<OpenApiSpec> {
+): Promise<OpenApiSpec> {
   return await (async () => {
     const paths: PathsObject = {};
 
