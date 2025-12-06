@@ -4,6 +4,7 @@ import { toJsonSchema } from '@valibot/to-json-schema';
 import * as v from 'valibot';
 
 import type {
+  AnySchema,
   EndpointDef,
   EndpointResponses,
   GlobModules,
@@ -17,13 +18,10 @@ import type {
   OpenApiSpec,
   OperationObject,
   PathsObject,
-  ResponseDef
+  ResponseDef,
 } from './types.ts';
 
-/**
- * Convenience alias for “any Valibot schema”.
- */
-type AnySchema = BaseSchema<unknown, unknown, BaseIssue<unknown>>;
+
 /**
  * Converts a Valibot query schema into an array of OpenAPI `parameters`
  * in the `in: "query"` location.
@@ -157,7 +155,6 @@ export function convertResponses(
 
   return out;
 }
-
 /**
  * Generates an OpenAPI 3.1 specification object for all routes matched by an
  * `import.meta.glob` call.
@@ -421,6 +418,18 @@ function convertContentMap(
 }
 
 /**
+ * Detects if a Valibot schema is async (`schema.async === true`).
+ */
+function isAsyncSchema(schema: unknown): boolean {
+  return (
+    !!schema &&
+    typeof schema === 'object' &&
+    // Valibot async schemas have `.async = true`
+    'async' in schema && schema.async === true
+  );
+}
+
+/**
  * Runtime check: is this a Valibot schema object?
  */
 function isValibotSchema(schema: unknown): schema is AnySchema {
@@ -429,6 +438,68 @@ function isValibotSchema(schema: unknown): schema is AnySchema {
     typeof schema === 'object' &&
     (schema as { kind?: unknown }).kind === 'schema'
   );
+}
+
+/**
+ * Converts any async Valibot schema into a structurally equivalent sync schema.
+ *
+ * This is required because:
+ * - `@valibot/to-json-schema` currently **cannot convert async schemas**
+ * - many Valibot pipelines wrap async transforms even when the structure is pure
+ *
+ * We preserve the *shape* but drop async-only behavior.
+ *
+ * Supported async → sync conversions:
+ * - objectAsync({...}) → object({...})
+ * - arrayAsync(item) → array(item)
+ * - pipeAsync(schema, ...) → unwrap the inner schema
+ * - async optional/nullable wrappers → sync equivalents
+ *
+ * The goal is **not** to replicate async transform semantics, only to document
+ * schema structure faithfully for OpenAPI.
+ */
+function normalizeAsync(schema: AnySchema): AnySchema {
+  if (!isAsyncSchema(schema)) return schema;
+
+  const { type } = schema;
+
+  // async object
+  if (type === 'object') {
+    const entries = 'entries' in schema &&  schema.entries || {};
+    const converted: Record<string, AnySchema> = {};
+
+    for (const [k, v] of Object.entries(entries)) {
+      converted[k] = normalizeAsync(v);
+    }
+    return v.object(converted);
+  }
+
+  // async array
+  if (type === 'array' && 'item' in schema) {
+    return v.array(normalizeAsync(schema.item as AnySchema));
+  }
+
+  // async optional / nullable
+  if (type === 'optional'  && 'wrapped' in schema) {
+    return v.optional(normalizeAsync(schema.wrapped as AnySchema));
+  }
+  if (type === 'nullable'  && 'wrapped' in schema) {
+    return v.nullable(normalizeAsync(schema.wrapped as AnySchema));
+  }
+
+  // async union
+  if (type === 'union'  && 'options' in schema) {
+    return v.union((schema.options as AnySchema[]).map((o) => normalizeAsync(o)));
+  }
+
+  // async pipelines → unwrap final schema
+  if (type === 'pipe') {
+    // A pipeAsync always wraps a base schema in `inner`
+    return normalizeAsync((("inner" in schema && schema?.inner) ?? ("value" in schema && schema?.value) ?? schema) as AnySchema);
+  }
+
+  // fallback: return original (sync-compatible)
+  return schema;
 }
 
 /**
@@ -446,6 +517,10 @@ function isValibotSchema(schema: unknown): schema is AnySchema {
  * children.
  */
 function normalizeSchema(schema: unknown): AnySchema | undefined {
+  // Unwrap async schemas first
+  if (isAsyncSchema(schema)) {
+    schema = normalizeAsync(schema as AnySchema);
+  }
   if (!isValibotSchema(schema)) {
     // Not a Valibot schema (or we can't recognize it) → return as-is.
     // This keeps behaviour identical to before for non-Valibot usages.
