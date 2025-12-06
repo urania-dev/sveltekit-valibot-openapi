@@ -166,13 +166,13 @@ export function convertResponses(
  * @param options  Optional OpenAPI metadata (title, version, servers, auth)
  * @returns        A SvelteKit `GET` handler producing an OpenAPI JSON document
  */
-export function createOpenApiHandler<
+export async function createOpenApiHandler<
   TEndpoint extends EndpointDef = EndpointDef
 >(
   modules: GlobModules<TEndpoint>,
   options: OpenApiOptions = {}
-): ()=>Promise<OpenApiSpec> {
-  return async () => {
+):Promise<OpenApiSpec> {
+  return await (async () => {
     const paths: PathsObject = {};
 
     for (const [file, loader] of Object.entries(modules)) {
@@ -294,7 +294,7 @@ export function createOpenApiHandler<
     };
 
     return spec
-  };
+  })();
 }
 
 /**
