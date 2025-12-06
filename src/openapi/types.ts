@@ -1,4 +1,4 @@
-import type { BaseIssue, BaseSchema } from 'valibot';
+import type { BaseIssue, BaseSchema, BaseSchemaAsync } from 'valibot';
 
 /**
  * A Valibot schema accepted by this library.
@@ -6,7 +6,10 @@ import type { BaseIssue, BaseSchema } from 'valibot';
  * The generics are fixed to `unknown` to ensure stable public types while
  * preserving compatibility with Valibot's JSON Schema transformer.
  */
-export type AnySchema<TInput = unknown,TOutput = unknown> = BaseSchema<TInput, TOutput, BaseIssue<unknown>>;
+
+export type AnySchema<TInput = unknown, TOutput = unknown> =
+  | BaseSchema<TInput, TOutput, BaseIssue<unknown>>
+  | BaseSchemaAsync<TInput, TOutput, BaseIssue<unknown>>;
 
 /**
  * A schema accepted by the library or a Promise resolving to one.

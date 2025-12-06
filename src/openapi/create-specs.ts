@@ -1,4 +1,4 @@
-import type { BaseIssue, BaseSchema } from 'valibot';
+import type { BaseIssue, BaseSchema, BaseSchemaAsync } from 'valibot';
 
 import { toJsonSchema } from '@valibot/to-json-schema';
 import * as v from 'valibot';
@@ -458,38 +458,38 @@ function isValibotSchema(schema: unknown): schema is AnySchema {
  * The goal is **not** to replicate async transform semantics, only to document
  * schema structure faithfully for OpenAPI.
  */
-function normalizeAsync(schema: AnySchema): AnySchema {
-  if (!isAsyncSchema(schema)) return schema;
-
+function normalizeAsync(_schema: unknown): BaseSchema<unknown,unknown, BaseIssue<unknown>> {
+  if (!isAsyncSchema(_schema)) return _schema as unknown as BaseSchema<unknown,unknown, BaseIssue<unknown>>;
+  const schema = _schema as BaseSchemaAsync<unknown,unknown, BaseIssue<unknown>>;
   const { type } = schema;
 
   // async object
   if (type === 'object') {
     const entries = 'entries' in schema &&  schema.entries || {};
-    const converted: Record<string, AnySchema> = {};
+    const converted: Record<string, BaseSchema<unknown,unknown, BaseIssue<unknown>>> = {};
 
     for (const [k, v] of Object.entries(entries)) {
-      converted[k] = normalizeAsync(v);
+      converted[k] = normalizeAsync(v) as BaseSchema<unknown,unknown, BaseIssue<unknown>>;
     }
-    return v.object(converted);
+    return (v.object(converted)) as BaseSchema<unknown,unknown, BaseIssue<unknown>>;
   }
 
   // async array
   if (type === 'array' && 'item' in schema) {
-    return v.array(normalizeAsync(schema.item as AnySchema));
-  }
+    return ((v.array(normalizeAsync(schema.item))) ) as unknown as BaseSchema<unknown,unknown, BaseIssue<unknown>>
+    }
 
   // async optional / nullable
   if (type === 'optional'  && 'wrapped' in schema) {
-    return v.optional(normalizeAsync(schema.wrapped as AnySchema));
+    return v.optional(normalizeAsync(schema.wrapped))  as BaseSchema<unknown,unknown, BaseIssue<unknown>>;
   }
   if (type === 'nullable'  && 'wrapped' in schema) {
-    return v.nullable(normalizeAsync(schema.wrapped as AnySchema));
+    return v.nullable(normalizeAsync(schema.wrapped))  as BaseSchema<unknown,unknown, BaseIssue<unknown>>;
   }
 
   // async union
   if (type === 'union'  && 'options' in schema) {
-    return v.union((schema.options as AnySchema[]).map((o) => normalizeAsync(o)));
+    return v.union((schema.options as unknown[]).map((o) => normalizeAsync(o))) as BaseSchema<unknown,unknown, BaseIssue<unknown>>;;
   }
 
   // async pipelines → unwrap final schema
@@ -499,7 +499,7 @@ function normalizeAsync(schema: AnySchema): AnySchema {
   }
 
   // fallback: return original (sync-compatible)
-  return schema;
+  return schema as unknown as BaseSchema<unknown,unknown, BaseIssue<unknown>>;
 }
 
 /**
