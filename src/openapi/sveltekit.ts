@@ -1,6 +1,6 @@
 import type { BaseIssue, BaseSchema } from 'valibot';
 
-import { type RequestHandler } from '@sveltejs/kit';
+import { json, type RequestHandler } from '@sveltejs/kit';
 import { toJsonSchema } from '@valibot/to-json-schema';
 import * as v from 'valibot';
 
@@ -294,13 +294,7 @@ export function createOpenApiHandler<
       ...(options.security ? { security: options.security } : {})
     };
 
-    const textResponse = JSON.stringify({spec})
-    return new Response(textResponse, {
-      headers:{
-        ["content-length"]:  textResponse.length.toString(),
-        ["content-type"]: "application/json",
-      }
-    })
+    return json(spec)
   };
 }
 
