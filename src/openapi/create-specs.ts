@@ -175,7 +175,7 @@ export function convertResponses(
  *   import { json } from '@sveltejs/kit';
  *
  *   export async function GET() {
- *     const spec = await createOpenApiHandler(
+ *     const spec = await createOpenApiSpec(
  *       import.meta.glob('../api/**\/+server.{ts,js}'),
  *       options
  *     );
@@ -187,7 +187,7 @@ export function convertResponses(
  * @param options  Optional OpenAPI metadata (title, version, servers, auth)
  * @returns        A Promise resolving to an `OpenApiSpec` object
  */
-export async function createOpenApiHandler<
+export async function createOpenApiSpec<
   TEndpoint extends EndpointDef = EndpointDef
 >(
   modules: GlobModules<TEndpoint>,

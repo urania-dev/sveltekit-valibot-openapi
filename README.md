@@ -5,7 +5,7 @@ endpoint metadata — **no runtime magic**, **no validation side-effects**, just
 clean documentation.
 
 - 🧩 First-class support for SvelteKit `+server` routes
-- 🔌 Framework-agnostic spec generator (`createOpenApiHandler`)
+- 🔌 Framework-agnostic spec generator (`createOpenApiSpec`)
 - ✅ Uses Valibot schemas for types **and** OpenAPI generation
 - 🧾 Supports multiple request/response media types
 - 🔍 Emits typed query parameters as OpenAPI `parameters`
@@ -86,7 +86,7 @@ export const POST: RequestHandler = async () => new Response("...");
 
 ## 📡 Generating and exposing the OpenAPI spec
 
-`createOpenApiHandler` now returns the **OpenAPI spec object**, not a
+`createOpenApiSpec` now returns the **OpenAPI spec object**, not a
 framework handler. You can use it wherever you like.
 
 ### SvelteKit example
@@ -95,12 +95,12 @@ framework handler. You can use it wherever you like.
 // src/routes/openapi/+server.ts
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
-import { createOpenApiHandler } from "@uraniadev/sveltekit-valibot-openapi";
+import { createOpenApiSpec } from "@uraniadev/sveltekit-valibot-openapi";
 
 const modules = import.meta.glob("../api/**/+server.{ts,js}");
 
 export const GET: RequestHandler = async () => {
-  const spec = await createOpenApiHandler(modules, {
+  const spec = await createOpenApiSpec(modules, {
     basePath: "/api",
     info: {
       title: "My API",
@@ -140,12 +140,12 @@ As long as you can build a `GlobModules` map (or something compatible),
 you can generate the spec anywhere:
 
 ```ts
-import { createOpenApiHandler } from "@uraniadev/sveltekit-valibot-openapi";
+import { createOpenApiSpec } from "@uraniadev/sveltekit-valibot-openapi";
 
 const modules = import.meta.glob("./routes/**/route.{ts,js}");
 
 async function buildSpec() {
-  const spec = await createOpenApiHandler(modules, {
+  const spec = await createOpenApiSpec(modules, {
     info: {
       title: "My Service",
       version: "1.0.0",
@@ -266,7 +266,7 @@ defineEndpoint({
 You configure security the same way – directly on the spec generator:
 
 ```ts
-const spec = await createOpenApiHandler(glob, {
+const spec = await createOpenApiSpec(glob, {
   securitySchemes: {
     bearerAuth: {
       type: "http",
