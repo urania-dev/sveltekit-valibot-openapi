@@ -1,6 +1,5 @@
 import type { BaseIssue, BaseSchema } from 'valibot';
 
-import { json, type RequestHandler } from '@sveltejs/kit';
 import { toJsonSchema } from '@valibot/to-json-schema';
 import * as v from 'valibot';
 
@@ -172,7 +171,7 @@ export function createOpenApiHandler<
 >(
   modules: GlobModules<TEndpoint>,
   options: OpenApiOptions = {}
-): RequestHandler {
+): ()=>Promise<OpenApiSpec> {
   return async () => {
     const paths: PathsObject = {};
 
@@ -294,7 +293,7 @@ export function createOpenApiHandler<
       ...(options.security ? { security: options.security } : {})
     };
 
-    return json(spec)
+    return spec
   };
 }
 
