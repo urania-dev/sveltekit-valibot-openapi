@@ -53,21 +53,30 @@ export interface EndpointDef<
    *
    * ```ts
    * body: {
+   *   description: 'Human-readable docs for the body', // optional
    *   content: {
    *     'application/json': JsonSchema,
    *     'multipart/form-data': FormSchema
-   *   }
+   *   },
+   *   required: true // optional, defaults to `true`
    * }
    * ```
    */
   body?:
-      | {
+    | {
+        /**
+         * Optional human-readable description for the request body.
+         *
+         * Emitted as `requestBody.description` in the OpenAPI operation.
+         * Useful when the body shape is complex or when you need to explain
+         * side-effects (e.g. callbacks, expand semantics, etc.).
+         */
         content: Record<string, AnySchema | Promise<AnySchema>>;
+        description?: string;
         /** Whether the request body is required. Defaults to `true`. */
         required?: boolean;
       }
     | TBodySchema;
-
   /**
    * Marks this endpoint as deprecated in the generated OpenAPI spec.
    */
@@ -97,7 +106,15 @@ export interface EndpointDef<
    * derived from the Valibot schema.
    */
   query?: TQuerySchema;
-
+  /**
+   * Optional per-query-parameter documentation.
+   *
+   * Each key must match a top-level property name of the `query` schema.
+   * These docs are merged into the generated OpenAPI parameters and take
+   * precedence over any `description`/`example(s)` derived from JSON Schema.
+   */
+  queryParams?: QueryParameterDocs;
+  
   /** HTTP responses for this operation. */
   responses: TResponses;
 
@@ -291,18 +308,30 @@ export interface OpenApiOptions {
 /** OpenAPI Parameter Object. */
 export interface OpenApiParameterObject {
   description?: string;
+  /**
+   * Single inline example for this parameter.
+   */
+  example?: unknown;
+  /**
+   * Multiple named examples for this parameter.
+   *
+   * This is intentionally loose (array of values) rather than the full
+   * OpenAPI `examples` object to keep the public type ergonomic.
+   */
+  examples?: unknown[];
   in: 'cookie' | 'header' | 'path' | 'query';
   name: string;
   required?: boolean;
+
   schema?: JsonSchema;
 }
 
 /** OpenAPI Request Body Object. */
 export interface OpenApiRequestBodyObject {
   content: Record<string, OpenApiMediaTypeObject>;
+  description?: string;
   required?: boolean;
 }
-
 /** OpenAPI Response Object. */
 export interface OpenApiResponseObject {
   content?: Record<string, OpenApiMediaTypeObject>;
@@ -311,6 +340,7 @@ export interface OpenApiResponseObject {
 
 /** OpenAPI map of status code → response. */
 export type OpenApiResponsesObject = Record<string, OpenApiResponseObject>;
+
 
 /** OpenAPI `servers` entry. */
 export interface OpenApiServer {
@@ -368,6 +398,62 @@ export type PathsObject = Record<
   string,
   Partial<Record<HttpMethodLower, OperationObject>>
 >;
+
+/**
+ * Documentation for a single query parameter.
+ */
+export interface QueryParameterDoc {
+  /** Human-readable explanation for this query parameter. */
+  description?: string;
+
+  /**
+   * Single example value.
+   *
+   * This is emitted as `parameter.example`. Use it when you only need one
+   * canonical example (e.g. an `expand` callback contract).
+   */
+  example?: unknown;
+
+  /**
+   * Multiple example values.
+   *
+   * This is emitted as `parameter.examples`. Useful to document common
+   * patterns or callback behaviours.
+   */
+  examples?: unknown[];
+}
+
+/**
+ * Per-parameter documentation for query fields.
+ *
+ * Keys must match the top-level keys of the `query` schema. These docs are
+ * merged into the generated OpenAPI `Parameter` objects and allow you to add
+ * descriptions and examples without changing the Valibot schema itself.
+ *
+ * @example
+ * const QuerySchema = object({
+ *   expand: string().optional(),
+ *   limit: number().optional()
+ * });
+ *
+ * defineEndpoint({
+ *   method: 'GET',
+ *   path: '/api/items',
+ *   query: QuerySchema,
+ *   queryParams: {
+ *     expand: {
+ *       description: 'Comma-separated list of relations to expand.',
+ *       example: 'teams,organization'
+ *     },
+ *     limit: {
+ *       description: 'Maximum number of items to return.',
+ *       example: 50
+ *     }
+ *   },
+ *   responses: { 200: { description: 'OK' } }
+ * });
+ */
+export type QueryParameterDocs = Record<string, QueryParameterDoc>;
 
 /**
  * Describes a single HTTP response for an operation.

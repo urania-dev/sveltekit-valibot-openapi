@@ -17,9 +17,9 @@
     }
   },
   "scripts": {
-    "build": "tsc && bun build ./src/index.ts --outdir=dist --minify --target=node",
+    "build": "bun --bun tsc && bun --bun build ./src/index.ts --outdir=dist --minify --target=node",
     "dev": "bun --watch src",
-    "prepare": "bun run build"
+    "prepare": "bun --bun run build"
   },
   "repository": {
     "type": "git",

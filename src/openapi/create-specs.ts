@@ -18,9 +18,9 @@ import type {
   OpenApiSpec,
   OperationObject,
   PathsObject,
+  QueryParameterDocs,
   ResponseDef,
 } from './types.ts';
-
 
 /**
  * Converts a Valibot query schema into an array of OpenAPI `parameters`
@@ -36,9 +36,13 @@ import type {
  *
  * Optional properties become `required: false`; required properties are
  * listed with `required: true` in the OpenAPI output.
+ *
+ * You can optionally pass `docs` to attach per-parameter descriptions and
+ * examples on top of the inferred JSON Schema.
  */
 export function convertQueryToParameters(
-  schema: unknown
+  schema: unknown,
+  docs?: QueryParameterDocs
 ): OpenApiParameterObject[] {
   const raw = toCleanJsonSchema(schema, 'input');
 
@@ -83,12 +87,27 @@ export function convertQueryToParameters(
 
     if (!hasSupportedType && !hasEnum) continue;
 
-    params.push({
+    const param: OpenApiParameterObject = {
       in: 'query',
       name,
       required: requiredSet.has(name),
       schema: typed
-    });
+    };
+
+    const override = docs?.[name];
+    if (override) {
+      if (override.description !== undefined) {
+        param.description = override.description;
+      }
+      if (override.example !== undefined) {
+        param.example = override.example;
+      }
+      if (override.examples !== undefined) {
+        param.examples = override.examples;
+      }
+    }
+
+    params.push(param);
   }
 
   return params;
@@ -231,9 +250,9 @@ export async function createOpenApiSpec<
         // Infer `in: "path"` parameters from the OpenAPI path string.
         const pathParams = inferPathParamsFromPath(path);
 
-        // Generate query parameters (if a query schema is provided).
+         // Generate query parameters (if a query schema is provided).
         const queryParams = def.query
-          ? convertQueryToParameters(def.query)
+          ? convertQueryToParameters(def.query, def.queryParams)
           : [];
 
         const allParams: OpenApiParameterObject[] = [];
@@ -249,7 +268,7 @@ export async function createOpenApiSpec<
           operation.parameters = allParams;
         }
 
-        // Generate request body for either a single schema or a multi-media
+         // Generate request body for either a single schema or a multi-media
         // `content` map.
         if (def.body) {
           // Multi-media `content` map form
@@ -258,8 +277,13 @@ export async function createOpenApiSpec<
             def.body !== null &&
             'content' in def.body
           ) {
-            const { content: contentMap, required } = def.body as {
+            const {
+              content: contentMap,
+              description,
+              required,
+            } = def.body as {
               content?: Record<string, unknown>;
+              description?: string;
               required?: boolean;
             };
 
@@ -267,6 +291,7 @@ export async function createOpenApiSpec<
               const content = convertContentMap(contentMap, 'input');
               if (Object.keys(content).length > 0) {
                 operation.requestBody = {
+                  ...(description !== undefined ? { description } : {}),
                   ...(required !== undefined ? { required } : {}),
                   content
                 };
