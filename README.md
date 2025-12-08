@@ -1,4 +1,6 @@
-# Valibot → OpenAPI 3.1 (SvelteKit-first, framework-agnostic)
+# Valibot → OpenAPI 3.1
+
+### (SvelteKit-first, framework-agnostic)
 
 Generate an OpenAPI 3.1 specification from your Valibot schemas and lightweight
 endpoint metadata — **no runtime magic**, **no validation side-effects**, just
@@ -35,17 +37,17 @@ framework as long as you can pass the modules into the spec generator.
 ```ts
 // src/routes/api/todos/+server.ts
 import type { RequestHandler } from "./$types";
-import { object, string, array } from "valibot";
+import * as valibot from "valibot";
 import { defineEndpoint } from "@uraniadev/sveltekit-valibot-openapi";
 
-const TodoSchema = object({
-  id: string(),
-  title: string(),
+const TodoSchema = v.object({
+  id: v.string(),
+  title: v.string(),
 });
 
 const TodoListSchema = array(TodoSchema);
-const TodoCreateSchema = object({
-  title: string(),
+const TodoCreateSchema = v.object({
+  title: v.string(),
 });
 
 export const _openapi = {
@@ -53,8 +55,8 @@ export const _openapi = {
     method: "GET",
     path: "/api/todos",
     summary: "List todos",
-    query: object({
-      search: string().optional(),
+    query: v.object({
+      search: v.optional(v.string()),
     }),
     responses: {
       200: {
@@ -181,10 +183,10 @@ body: {
 ### Multiple media types
 
 ```ts
-const JsonSchema = object({ name: string() });
-const MultipartSchema = object({
-  name: string(),
-  avatar: string(),
+const JsonSchema = v.object({ name: string() });
+const MultipartSchema = v.object({
+  name: v.string(),
+  avatar: v.string(),
 });
 
 defineEndpoint({
@@ -220,14 +222,14 @@ defineEndpoint({
     200: {
       description: "Multiple formats",
       content: {
-        "application/json": object({ ok: string() }),
-        "text/plain": string(),
-        "image/png": string(),
+        "application/json": v.object({ ok: string() }),
+        "text/plain": v.string(),
+        "image/png": v.string(),
       },
     },
     404: {
       description: "Not found",
-      schema: object({ ok: string() }),
+      schema: v.object({ ok: string() }),
     },
   },
 });
@@ -240,11 +242,11 @@ defineEndpoint({
 Object schemas become OpenAPI `parameters`.
 
 ```ts
-const QuerySchema = object({
-  search: string().optional(),
-  limit: number(),
-  verbose: boolean().optional(),
-  sort: union([literal("asc"), literal("desc")]),
+const QuerySchema = v.object({
+  search: v.optional(v.string()),
+  limit: v.number(),
+  verbose: v.optional(v.boolean()),
+  sort: v.union([literal("asc"), literal("desc")]),
 });
 
 defineEndpoint({
