@@ -315,11 +315,11 @@ import { EndpointDef, OpenApiSpec } from "@uraniadev/sveltekit-valibot-openapi";
 
 ## 🤖 About the Project
 
-This library was not “vibe-coded” or generated blindly.
+This library was not exactly “vibe-coded” or generated blindly.
 It was built through an iterative workflow where AI was used **as a technical assistant**, not as an author.
 
 All architectural decisions, schema handling logic, and API design were intentionally crafted by the maintainer, with AI serving as a tool to accelerate refactoring, validate edge cases, and improve TypeScript ergonomics.
 
-Every line of code was reviewed, tested, and integrated with a clear understanding of SvelteKit, Valibot, and OpenAPI constraints.
+Every line of code was reviewed, tested, and integrated with a somehow clear understanding of SvelteKit, Valibot, and OpenAPI constraints.
 
 So any mistake or naivety is purely mine, amplified by AI abuse 😉
