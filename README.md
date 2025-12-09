@@ -26,13 +26,12 @@ pnpm add @uraniadev/sveltekit-valibot-openapi valibot @valibot/to-json-schema
 ```
 
 ---
-
 ## 📘 Defining endpoints
 
-Export `_openapi` from your route module.
-Each key is an HTTP method, each value is created with `defineEndpoint`.
+Endpoints are declared by exporting a `_openapi` object from your SvelteKit route module.
 
-Works in SvelteKit, but nothing here is tied to it — any environment that can pass a module map into the generator works.
+Each key is an HTTP method, each value is created with `defineEndpoint()`.
+The object is later **sanitized**, **validated**, and **deep-frozen** by the generator to guarantee structural safety.
 
 ```ts
 // src/routes/api/todos/+server.ts
@@ -45,9 +44,7 @@ const Todo = v.object({
 });
 
 const TodoList = v.array(Todo);
-const TodoCreate = v.object({
-  title: v.string(),
-});
+const TodoCreate = v.object({ title: v.string() });
 
 export const _openapi = {
   GET: defineEndpoint({
@@ -78,13 +75,23 @@ export const _openapi = {
     },
   }),
 } as const;
-
-// SvelteKit handlers (not related to OpenAPI)
-export const GET = async () => new Response("...");
-export const POST = async () => new Response("...");
 ```
 
----
+### ✔ What `defineEndpoint()` supports
+
+* `query`: **object-like only** (object / optional / nullable / pipe / union-of-objects)
+* `queryParams`: extra documentation aligned with `query`
+* `body`:
+
+  * a schema → emitted as `application/json`
+  * or a `{ content: { "media/type": schema } }` map
+* `responses`:
+
+  * `{ schema }`
+  * `{ content: { "media/type": schema } }`
+  * both (JSON fallback auto-added)
+* `tags`, `summary`, `description`, `deprecated`
+* per-endpoint `security`
 
 ## 📡 Generating and exposing the OpenAPI spec
 
@@ -152,111 +159,209 @@ async function build() {
 
 ---
 
-## 📝 Request Bodies
+## 🧾 Request Bodies
 
-### Simple JSON schema
-
-```ts
-body: UserSchema;
-```
-
-Produces:
-
-```json
-{ "content": { "application/json": { "schema": ... } } }
-```
-
-### Optional body
+Request bodies fully support **multi-media content maps**:
 
 ```ts
 body: {
+  description: "Update profile",
   required: false,
   content: {
-    "application/json": PartialUserSchema
+    "application/json": v.object({ name: v.string() }),
+    "multipart/form-data": v.object({
+      name: v.string(),
+      avatar: v.string(),
+    }),
+  },
+}
+```
+
+Shorthand (schema only):
+
+```ts
+body: v.object({ title: v.string() });
+```
+
+is documented as:
+
+```json
+{
+  "content": {
+    "application/json": { "schema": { … } }
   }
 }
 ```
 
-### Multiple media types
+All body definitions undergo strict validation:
 
-```ts
-defineEndpoint({
-  method: "POST",
-  path: "/api/profile",
-  body: {
-    content: {
-      "application/json": v.object({ name: v.string() }),
-      "multipart/form-data": v.object({
-        name: v.string(),
-        avatar: v.string(),
-      }),
-    },
-  },
-  responses: { 204: { description: "Profile updated" } },
-});
-```
-
----
+* media types validated (`type/subtype`)
+* schemas must be valid Valibot schemas
+* description length capped
+* full deep-frozen sanitized output
 
 ## 📤 Responses
 
-You may declare:
+A response may define:
 
-- a JSON schema (`schema`)
-- a multi-media `content` map
-- or both (JSON fallback is added only if not already present)
+* a single JSON schema (`schema`)
+* a `content` map
+* or both
 
 ```ts
-defineEndpoint({
-  method: "GET",
-  path: "/api/example",
-  responses: {
-    200: {
-      description: "Multiple formats",
-      content: {
-        "application/json": v.object({ ok: v.string() }),
-        "text/plain": v.string(),
-        "image/png": v.string(),
-      },
-    },
-    404: {
-      description: "Not found",
-      schema: v.object({ ok: v.string() }),
+responses: {
+  200: {
+    description: "Multiple formats",
+    content: {
+      "application/json": v.object({ ok: v.string() }),
+      "text/plain": v.string(),
+      "image/png": v.string(),
     },
   },
-});
+  404: {
+    description: "Not found",
+    schema: v.object({ message: v.string() }),
+  },
+}
 ```
 
----
+Rules enforced by sanitization:
+
+* status keys **must be numeric 3-digit codes**
+* unknown keys rejected
+* description length capped
+* schemas validated + normalized asynchronously
+* content media types validated
+* max 32 responses per endpoint
 
 ## 🔍 Query Parameters
 
-Query schemas **must be object-like** (object, optional/nullable/pipe wrappers, or unions of objects with matching keys).
+`query` must be **object-like**:
 
-Properties → OpenAPI `parameters`.
+* `object(...)`
+* wrapped in `optional`, `nullable`, `nullish`, `pipe`, `brand`, `fallback`, `default`
+* unions of objects **only if all branches expose identical keys**
+
+Unsupported shapes (primitives, arrays) are rejected.
 
 ```ts
 const Query = v.object({
   search: v.optional(v.string()),
   limit: v.number(),
-  verbose: v.optional(v.boolean()),
   sort: v.union([v.literal("asc"), v.literal("desc")]),
-});
-
-defineEndpoint({
-  method: "GET",
-  path: "/api/items",
-  query: Query,
-  responses: { 200: { description: "OK" } },
 });
 ```
 
 The generator:
 
-- unwraps Valibot pipeline types
-- enforces object-only queries
-- rejects arrays/primitives
-- ensures union branches align
+* unwraps wrapper types
+* validates union shapes
+* rejects mismatched branches
+* extracts top-level fields only
+* produces OpenAPI `in: "query"` parameters
+* merges documentation from `queryParams`
+
+Array-typed query values are permitted and documented normally.
+
+---
+
+## 🛡 Hardened Sanitization Layer
+
+Every `_openapi` module is sanitized before inclusion:
+
+* must be **plain**, **prototype-free** objects
+* forbidden keys: `__proto__`, `constructor`, `prototype`
+* no getters/setters
+* max 32 methods per module
+* endpoint definitions validated strictly:
+
+  * allowed keys only
+  * required `method` and `responses`
+  * tags capped, doc strings capped
+  * body/query/responses validated structurally
+  * deep-frozen immutable output
+
+This prevents prototype pollution, malformed metadata, and unbounded structures from entering your spec.
+
+---
+
+## 🧬 Schema Normalization & Budget Limits
+
+Valibot schemas go through a full structural normalization step:
+
+* async schemas → sync structure
+* `date()` → `{ type: "string", format: "date-time" }`
+* `never()` removed
+* wrapper unwrapping
+* union normalization
+* array nesting bounded
+
+To prevent runaway or malicious schemas:
+
+* max depth: **32**
+* max nodes: **10,000**
+* max union options: **32**
+* max object properties: **128**
+* max array nesting: **16**
+
+Invalid or pathological schemas fail early with explicit errors.
+
+---
+
+## 🧱 Component Schema Registry (deduplication)
+
+Schemas used in request/response bodies are automatically:
+
+* normalized
+* converted to JSON Schema
+* deduplicated
+* registered under `#/components/schemas/...`
+
+This avoids excessive inlining and makes the generated spec tooling-friendly.
+
+```json
+{
+  "components": {
+    "schemas": {
+      "User_1": { ... },
+      "Todo_2": { ... }
+    }
+  }
+}
+```
+
+---
+
+## 🏷 Auto-tagging
+
+If an endpoint has tags, the generator aggregates them into a sorted list:
+
+```json
+{
+  "tags": [
+    { "name": "Users" },
+    { "name": "Todos" }
+  ]
+}
+```
+
+---
+
+## 🗂 Path Handling
+
+Your generator now:
+
+* infers OpenAPI paths from route files (`[id]` → `{id}`)
+* extracts path parameters and documents them automatically
+* ensures all path parameters are required and typed
+
+Example:
+
+```
+src/routes/api/users/[id]/+server.ts
+↓
+/api/users/{id}
+```
 
 ---
 
