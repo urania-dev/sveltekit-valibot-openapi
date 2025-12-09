@@ -246,7 +246,7 @@ const QuerySchema = v.object({
   search: v.optional(v.string()),
   limit: v.number(),
   verbose: v.optional(v.boolean()),
-  sort: v.union([literal("asc"), literal("desc")]),
+  sort: v.union([v.literal("asc"), v.literal("desc")]),
 });
 
 defineEndpoint({
