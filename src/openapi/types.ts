@@ -3,10 +3,11 @@ import type { BaseIssue, BaseSchema, BaseSchemaAsync } from 'valibot';
 /**
  * A Valibot schema accepted by this library.
  *
- * The generics are fixed to `unknown` to ensure stable public types while
- * preserving compatibility with Valibot's JSON Schema transformer.
+ * Both sync and async Valibot schemas are supported. Async schemas are
+ * normalised internally so they can be converted into JSON Schema without
+ * requiring async execution. Behavioural async logic is not executed here;
+ * only structural information is used to generate documentation.
  */
-
 export type AnySchema<TInput = unknown, TOutput = unknown> =
   | BaseSchema<TInput, TOutput, BaseIssue<unknown>>
   | BaseSchemaAsync<TInput, TOutput, BaseIssue<unknown>>;
@@ -16,7 +17,7 @@ export type AnySchema<TInput = unknown, TOutput = unknown> =
  *
  * Many projects produce schemas asynchronously (e.g. generated or loaded
  * dynamically). `SchemaLike` accepts either a `AnySchema` or a
- * `Promise<AnySchema>` so route authors don't need to cast.
+ * `` so route authors don't need to cast.
  */
 
 /**
@@ -35,33 +36,36 @@ export type AnySchema<TInput = unknown, TOutput = unknown> =
  * Map of status codes to response definitions.
  */
 export interface EndpointDef<
-  TQuerySchema extends AnySchema | Promise<AnySchema> | undefined = AnySchema | Promise<AnySchema> | undefined,
-  TBodySchema extends AnySchema | Promise<AnySchema> | undefined = AnySchema | Promise<AnySchema> | undefined,
+  TQuerySchema extends AnySchema | undefined = AnySchema | undefined,
+  TBodySchema extends AnySchema | undefined = AnySchema | undefined,
   TResponses extends EndpointResponses = EndpointResponses
 > {
   /**
-   * Valibot schema describing the request body.
-   *
-   * For a single JSON body, pass the schema directly:
-   *
-   * ```ts
-   * body: MyJsonSchema
-   * // → requestBody.content['application/json']
-   * ```
-   *
-   * For multiple media types, wrap schemas in a `content` map:
-   *
-   * ```ts
-   * body: {
-   *   description: 'Human-readable docs for the body', // optional
-   *   content: {
-   *     'application/json': JsonSchema,
-   *     'multipart/form-data': FormSchema
-   *   },
-   *   required: true // optional, defaults to `true`
-   * }
-   * ```
-   */
+ * Valibot schema describing the request body.
+ *
+ * Two forms are supported:
+ *
+ * 1. Pass a schema directly:
+ *    ```ts
+ *    body: MySchema
+ *    // → emitted as application/json
+ *    ```
+ *
+ * 2. Pass a `content` map to describe multiple media types:
+ *    ```ts
+ *    body: {
+ *      description: 'Explanation for the request body',
+ *      content: {
+ *        'application/json': JsonSchema,
+ *        'multipart/form-data': FormSchema
+ *      },
+ *      required: true
+ *    }
+ *    ```
+ *
+ * No Promise-based schema loading is supported here. Any async Valibot
+ * schema is normalised automatically before JSON Schema conversion.
+ */
   body?:
     | {
         /**
@@ -71,7 +75,7 @@ export interface EndpointDef<
          * Useful when the body shape is complex or when you need to explain
          * side-effects (e.g. callbacks, expand semantics, etc.).
          */
-        content: Record<string, AnySchema | Promise<AnySchema>>;
+        content: Record<string, AnySchema>;
         description?: string;
         /** Whether the request body is required. Defaults to `true`. */
         required?: boolean;
@@ -142,31 +146,25 @@ export interface EndpointDef<
  * schema (or `undefined`). This is transformed into a map of `ResponseDef`s.
  */
 export type EndpointResponses<
-  TSchemaMap extends Record<PropertyKey, AnySchema | Promise<AnySchema> | undefined> = Record<
+  TSchemaMap extends Record<PropertyKey, AnySchema | undefined> = Record<
     number,
-    AnySchema | Promise<AnySchema> | undefined
+    AnySchema | undefined
   >
 > = {
   [Status in keyof TSchemaMap]: ResponseDef<
-    Extract<TSchemaMap[Status], AnySchema | Promise<AnySchema> | undefined>
+    Extract<TSchemaMap[Status], AnySchema | undefined>
   >;
 };
-
 /**
- * Shape expected from `import.meta.glob` when scanning for API modules.
+ * Shape expected from `import.meta.glob` when scanning API modules.
  *
- * Each key is a file path and each value is a loader function that resolves
- * either to a route module (possibly containing `_openapi`) or to another
- * loader function. This abstraction allows the OpenAPI handler to support
- * Vite’s dynamic import variations.
+ * Each key is a module path. Each value is a loader returning a module
+ * object. Nested loader functions are allowed and resolved automatically.
+ *
+ * Only the resolved module’s `_openapi` export is inspected; everything
+ * else is ignored.
  */
-export type GlobModules<
-  TEndpoint extends EndpointDef = EndpointDef
-> = Record<
-  string,
-  () => Promise<(() => Promise<unknown>) | MultiEndpointModule<TEndpoint>>
->;
-
+export type GlobModules = Record<string, () => Promise<unknown>>;
 /**
  * HTTP methods that may be documented for an API route.
  *
@@ -192,9 +190,9 @@ export type HttpMethodLower = Lowercase<HttpMethod>;
  * index signature.
  * 
  * NOTE:
- * - Valibot `date()` is normalized to `{ type: "string", format: "date-time" }`
- *   during OpenAPI generation. This avoids the known limitation in the
- *   Valibot JSON Schema transformer while keeping OpenAPI output valid.
+ * - `v.date()` is normalised to `{ type: "string", format: "date-time" }`
+ *   before conversion. This produces consistent OpenAPI output regardless
+ *   of Valibot’s internal transformer behaviour.
  */
 export type JsonSchema =
   | {
@@ -273,6 +271,7 @@ export interface OAuthFlowsObject {
  * in the future to support more component types.
  */
 export interface OpenApiComponents {
+  schemas?: Record<string, JsonSchema>;
   securitySchemes?: Record<string, SecuritySchemeObject>;
 }
 
@@ -281,6 +280,11 @@ export interface OpenApiInfo {
   description?: string;
   title?: string;
   version?: string;
+}
+
+export interface OpenApiLogger {
+  error(message: string, meta?: unknown): void;
+  warn(message: string, meta?: unknown): void;
 }
 
 /** Media type object inside an OpenAPI response or request body. */
@@ -300,6 +304,7 @@ export interface OpenApiMediaTypeObject {
 export interface OpenApiOptions {
   basePath?: string;
   info?: OpenApiInfo;
+  logger?: OpenApiLogger;
   security?: SecurityRequirementObject[];
   securitySchemes?: Record<string, SecuritySchemeObject>;
   servers?: OpenApiServer[];
@@ -325,22 +330,22 @@ export interface OpenApiParameterObject {
 
   schema?: JsonSchema;
 }
-
 /** OpenAPI Request Body Object. */
 export interface OpenApiRequestBodyObject {
   content: Record<string, OpenApiMediaTypeObject>;
   description?: string;
   required?: boolean;
 }
+
 /** OpenAPI Response Object. */
 export interface OpenApiResponseObject {
   content?: Record<string, OpenApiMediaTypeObject>;
   description: string;
 }
 
+
 /** OpenAPI map of status code → response. */
 export type OpenApiResponsesObject = Record<string, OpenApiResponseObject>;
-
 
 /** OpenAPI `servers` entry. */
 export interface OpenApiServer {
@@ -463,7 +468,7 @@ export type QueryParameterDocs = Record<string, QueryParameterDoc>;
  * `undefined` if the response does not return a typed body.
  */
 export interface ResponseDef<
-  TSchema extends AnySchema | Promise<AnySchema> | undefined = AnySchema | Promise<AnySchema> | undefined
+  TSchema extends AnySchema  | undefined = AnySchema |   undefined
 > {
   /**
    * Optional mapping of `mediaType → Valibot schema`.
@@ -471,7 +476,7 @@ export interface ResponseDef<
    * Use this to model multiple response representations for a status code,
    * such as JSON, plain text, or binary formats.
    */
-  content?: Record<string, AnySchema | Promise<AnySchema>>;
+  content?: Record<string, AnySchema>;
 
   /** Human-readable explanation included in the OpenAPI output. */
   description?: string;
