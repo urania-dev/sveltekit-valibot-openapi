@@ -790,6 +790,64 @@ function normalizeSchema(schema: unknown, budget: SchemaTraversalBudget): AnySch
 		normalizedSchemaCache.set(key, norm);
 		return norm;
 	}
+/**
+ * FORCE PIPE / TRANSFORM / UNKNOWN WRAPPERS → string | null
+ *
+ * Any schema with a wrapper that OpenAPI cannot represent must become
+ * a harmless fallback: union<string, null>.
+ *
+ * This keeps ALL your query parameters visible in the spec.
+ */
+const forceStringUnion = () =>
+  v.union([v.string(), v.null()]) as AnySchema;
+
+// Detect wrappers Valibot cannot serialize into JSON Schema:
+if (type === 'pipe' || type === 'transform') {
+  const mapped = forceStringUnion();
+  normalizedSchemaCache.set(key, mapped);
+  return mapped;
+}
+
+// Some transforms generate schemas typed as "unknown" or without a type.
+// We treat them the same way: fallback to string|null.
+if (type === 'unknown' || type === 'unknownAsync') {
+  const mapped = forceStringUnion();
+  normalizedSchemaCache.set(key, mapped);
+  return mapped;
+}
+
+// For OPTIONAL and NULLABLE wrappers that wrap a non-documentable inner schema:
+if (type === 'optional' || type === 'nullable') {
+  const wrapped = hasWrapped(base) ? base.wrapped : undefined;
+
+  if (!wrapped) {
+    const mapped = forceStringUnion();
+    normalizedSchemaCache.set(key, mapped);
+    return mapped;
+  }
+
+  const normWrapped = normalizeSchema(wrapped, {
+    ...budget,
+    depth: budget.depth + 1
+  });
+
+  if (!normWrapped) {
+    const mapped = forceStringUnion();
+    normalizedSchemaCache.set(key, mapped);
+    return mapped;
+  }
+
+  // Rebuild wrapper only if valid
+  if (type === 'optional') {
+    const rebuilt = v.optional(normWrapped as BaseSchema<unknown, unknown, BaseIssue<unknown>>) as AnySchema;
+    normalizedSchemaCache.set(key, rebuilt);
+    return rebuilt;
+  }
+
+  const rebuilt = v.nullable(normWrapped as BaseSchema<unknown, unknown, BaseIssue<unknown>>) as AnySchema;
+  normalizedSchemaCache.set(key, rebuilt);
+  return rebuilt;
+}
 
 	if (type === 'object') {
 		const entries = (base as { entries?: Record<string, unknown> }).entries;
