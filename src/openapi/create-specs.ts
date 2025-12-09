@@ -73,18 +73,14 @@ export function convertQueryToParameters(
   docs?: QueryParameterDocs
 ): OpenApiParameterObject[] {
   let raw: JsonSchema;
+
   try {
     raw = toCleanJsonSchema(schema, "input");
   } catch (err) {
-    const logger = getLogger();
-    const message =
-      err instanceof Error ? err.message : String(err);
-
-    logger.error("[openapi] Failed to convert query schema to parameters", {
-      message,
+    getLogger().error("[openapi] Failed to convert query schema", {
+      message: err instanceof Error ? err.message : String(err),
     });
-
-    // Fail soft: keep the endpoint, just no documented query params
+    // Do NOT kill the endpoint – just emit no query parameters.
     return [];
   }
 
@@ -107,7 +103,7 @@ export function convertQueryToParameters(
 
     const typed = propSchema as Exclude<JsonSchema, boolean>;
     const typeField = typed.type;
-    const enumField = (typed as { enum?: unknown }).enum;
+    const enumField = typed.enum;
 
     const types = Array.isArray(typeField)
       ? typeField
@@ -124,7 +120,7 @@ export function convertQueryToParameters(
           typeof v === "string" ||
           typeof v === "number" ||
           typeof v === "boolean" ||
-          v === null,
+          v === null
       );
 
     if (!hasSupportedType && !hasEnum) continue;
@@ -545,7 +541,7 @@ export function inferPathParamsFromPath(
  */
 export function normalizeSchema(
   schema: unknown,
-  budget: SchemaTraversalBudget,
+  budget: SchemaTraversalBudget
 ): AnySchema | undefined {
   if (budget.nodeCount++ > MAX_SCHEMA_NODES) {
     throw new Error("[openapi] Schema node limit exceeded");
@@ -565,11 +561,13 @@ export function normalizeSchema(
   if (cached !== undefined) return cached;
 
   const base = schema as AnySchema;
-  const type = (base as { type?: string }).type;
-  if (!type || !VALIBOT_SUPPORTED_TYPES.has(type)) {
-    throw new Error(
-      `[openapi] Unsupported Valibot schema type "${type ?? "unknown"}"`,
-    );
+  const type = (base as { type?: string }).type ?? "unknown";
+
+  const fallbackScalar = v.union([v.string(), v.null()]) as AnySchema;
+
+  if (!VALIBOT_SUPPORTED_TYPES.has(type)) {
+    normalizedSchemaCache.set(key, fallbackScalar);
+    return fallbackScalar;
   }
 
   const SIMPLE_PASSTHROUGH = new Set<string>([
@@ -578,10 +576,8 @@ export function normalizeSchema(
     "enum",
     "literal",
     "number",
-    "record",
     "string",
     "symbol",
-    "tuple",
     "unknown",
     "unknownAsync",
   ]);
@@ -591,29 +587,28 @@ export function normalizeSchema(
     return base;
   }
 
-  // date() → string
   if (type === "date") {
     const mapped = v.string() as AnySchema;
     normalizedSchemaCache.set(key, mapped);
     return mapped;
   }
 
-  // never() – drop node
   if (type === "never") {
     normalizedSchemaCache.set(key, undefined);
     return undefined;
   }
 
-  const fallbackScalar = v.union([v.string(), v.null()]) as AnySchema;
-
   const unwrapInner = (schemaNode: AnySchema): unknown => {
     if (hasWrapped(schemaNode)) {
       return (schemaNode as { wrapped: unknown }).wrapped;
     }
-    const withInner = schemaNode as { inner?: unknown };
-    if (withInner.inner !== undefined) return withInner.inner;
-    const withValue = schemaNode as { value?: unknown };
-    if (withValue.value !== undefined) return withValue.value;
+
+    const maybeInner = schemaNode as { inner?: unknown };
+    if (maybeInner.inner !== undefined) return maybeInner.inner;
+
+    const maybeValue = schemaNode as { value?: unknown };
+    if (maybeValue.value !== undefined) return maybeValue.value;
+
     return undefined;
   };
 
@@ -631,6 +626,7 @@ export function normalizeSchema(
     type === "promise"
   ) {
     const inner = unwrapInner(base);
+
     if (!inner) {
       normalizedSchemaCache.set(key, fallbackScalar);
       return fallbackScalar;
@@ -648,7 +644,7 @@ export function normalizeSchema(
 
     if (type === "optional") {
       const rebuilt = v.optional(
-        normInner as BaseSchema<unknown, unknown, BaseIssue<unknown>>,
+        normInner as BaseSchema<unknown, unknown, BaseIssue<unknown>>
       ) as AnySchema;
       normalizedSchemaCache.set(key, rebuilt);
       return rebuilt;
@@ -656,7 +652,7 @@ export function normalizeSchema(
 
     if (type === "nullable") {
       const rebuilt = v.nullable(
-        normInner as BaseSchema<unknown, unknown, BaseIssue<unknown>>,
+        normInner as BaseSchema<unknown, unknown, BaseIssue<unknown>>
       ) as AnySchema;
       normalizedSchemaCache.set(key, rebuilt);
       return rebuilt;
@@ -664,7 +660,7 @@ export function normalizeSchema(
 
     if (type === "nullish") {
       const rebuilt = v.nullish(
-        normInner as BaseSchema<unknown, unknown, BaseIssue<unknown>>,
+        normInner as BaseSchema<unknown, unknown, BaseIssue<unknown>>
       ) as AnySchema;
       normalizedSchemaCache.set(key, rebuilt);
       return rebuilt;
@@ -796,10 +792,10 @@ export function normalizeSchema(
     return clone;
   }
 
+  // record, tuple, etc. – leave as-is, rely on Valibot's converter
   normalizedSchemaCache.set(key, base);
   return base;
 }
-
 
 /**
  * Converts a record:

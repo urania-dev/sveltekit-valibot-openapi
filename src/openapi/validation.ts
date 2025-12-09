@@ -70,17 +70,14 @@ export const VALIBOT_SUPPORTED_TYPES = new Set<string>([
   "enum",
   "fallback",
   "lazy",
-
   "literal",
   "never",
   "nullable",
   "nullish",
   "number",
-
   "object",
   "optional",
   "pipe",
-
   "promise",
   "readonly",
   "record",
@@ -89,10 +86,10 @@ export const VALIBOT_SUPPORTED_TYPES = new Set<string>([
   "transform",
   "tuple",
   "union",
-
   "unknown",
   "unknownAsync",
 ]);
+
 
 /**
  * Safety caps to reduce abuse / DoS vectors through gigantic specs.
