@@ -1069,16 +1069,20 @@ async function unwrapModule<TEndpoint extends EndpointDef>(
 ): Promise<MultiEndpointModule<TEndpoint> | null> {
   if (depth > 2) return null;
 
-  try {
-    const sanitized = sanitizeOpenApiModule(
-      (maybe ?? {}) as Record<string, unknown>
-    );
-    return sanitized as MultiEndpointModule<TEndpoint>;
-  } catch(err) {
-    getLogger().error(
-        "[openapi] Failed to sanitize _openapi module",
-        { error: err instanceof Error ? err.message : String(err) }
-    );
+  if (maybe && typeof maybe === "object") {
+    const raw = maybe as Record<string, unknown>;
+
+    if ("_openapi" in raw) {
+      try {
+        const sanitized = sanitizeOpenApiModule(raw);
+        return sanitized as MultiEndpointModule<TEndpoint>;
+      } catch (err) {
+        getLogger().error("[openapi] Failed to sanitize _openapi module", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return null;
   }
 
   if (typeof maybe === "function" && maybe.length === 0) {
