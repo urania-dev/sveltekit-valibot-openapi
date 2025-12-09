@@ -685,233 +685,240 @@ function normalizeAsync(
  *   forcing callers to reject the schema rather than silently emitting
  *   garbage.
  */
-function normalizeSchema(
-  schema: unknown,
-  budget: SchemaTraversalBudget
-): AnySchema | undefined {
-  if (budget.nodeCount++ > MAX_SCHEMA_NODES) {
-    throw new Error("[openapi] Schema node limit exceeded");
-  }
-  if (budget.depth > MAX_SCHEMA_DEPTH) {
-    throw new Error("[openapi] Schema depth limit exceeded");
-  }
+function normalizeSchema(schema: unknown, budget: SchemaTraversalBudget): AnySchema | undefined {
+	if (budget.nodeCount++ > MAX_SCHEMA_NODES) {
+		throw new Error('[openapi] Schema node limit exceeded');
+	}
+	if (budget.depth > MAX_SCHEMA_DEPTH) {
+		throw new Error('[openapi] Schema depth limit exceeded');
+	}
 
-  if (isAsyncSchema(schema)) {
-    schema = normalizeAsync(schema, budget.depth);
-  }
+	if (isAsyncSchema(schema)) {
+		schema = normalizeAsync(schema, budget.depth);
+	}
 
-  if (!isValibotSchema(schema)) return undefined;
+	if (!isValibotSchema(schema)) return undefined;
 
-  const key = schema as object;
-  const cached = normalizedSchemaCache.get(key);
-  if (cached !== undefined) return cached;
+	const key = schema as object;
+	const cached = normalizedSchemaCache.get(key);
+	if (cached !== undefined) return cached;
 
-  const base = schema as AnySchema;
-  const type = (base as { type?: string }).type;
-  if (!type || !VALIBOT_SUPPORTED_TYPES.has(type)) {
-    throw new Error(
-      `[openapi] Unsupported Valibot schema type "${type ?? "unknown"}"`
-    );
-  }
+	const base = schema as AnySchema;
+	const type = (base as { type?: string }).type;
+	if (!type || !VALIBOT_SUPPORTED_TYPES.has(type)) {
+		throw new Error(`[openapi] Unsupported Valibot schema type "${type ?? 'unknown'}"`);
+	}
 
-  if (type === "date") {
-    const mapped = v.string() as AnySchema;
-    normalizedSchemaCache.set(key, mapped);
-    return mapped;
-  }
+	// Map Valibot date() → string
+	if (type === 'date') {
+		const mapped = v.string() as AnySchema;
+		normalizedSchemaCache.set(key, mapped);
+		return mapped;
+	}
 
-  if (type === "never") {
-    normalizedSchemaCache.set(key, undefined);
-    return undefined;
-  }
-  if (type === "optional") {
-    if (!hasWrapped(base)) {
-      normalizedSchemaCache.set(key, undefined);
-      return undefined;
-    }
+	// Map never() to a harmless fallback instead of killing the endpoint
+	if (type === 'never') {
+		const mapped = v.object({}) as AnySchema;
+		normalizedSchemaCache.set(key, mapped);
+		return mapped;
+	}
 
-    const norm = normalizeSchema(base.wrapped, {
-      ...budget,
-      depth: budget.depth + 1,
-    });
+	// optional / nullable wrappers
+	if (type === 'optional') {
+		if (!hasWrapped(base)) {
+			normalizedSchemaCache.set(key, undefined);
+			return undefined;
+		}
 
-    if (!norm) {
-      normalizedSchemaCache.set(key, undefined);
-      return undefined;
-    }
+		const norm = normalizeSchema(base.wrapped, {
+			...budget,
+			depth: budget.depth + 1
+		});
 
-    const rebuilt = v.optional(
-      norm as BaseSchema<unknown, unknown, BaseIssue<unknown>>
-    ) as AnySchema;
-    normalizedSchemaCache.set(key, rebuilt);
-    return rebuilt;
-  }
-  if (type === "nullable") {
-    if (!hasWrapped(base)) {
-      normalizedSchemaCache.set(key, undefined);
-      return undefined;
-    }
+		if (!norm) {
+			normalizedSchemaCache.set(key, undefined);
+			return undefined;
+		}
 
-    const norm = normalizeSchema(base.wrapped, {
-      ...budget,
-      depth: budget.depth + 1,
-    });
+		const rebuilt = v.optional(norm as BaseSchema<unknown,unknown,BaseIssue<unknown>>) as AnySchema;
+		normalizedSchemaCache.set(key, rebuilt);
+		return rebuilt;
+	}
 
-    if (!norm) {
-      normalizedSchemaCache.set(key, undefined);
-      return undefined;
-    }
+	if (type === 'nullable') {
+		if (!hasWrapped(base)) {
+			normalizedSchemaCache.set(key, undefined);
+			return undefined;
+		}
 
-    const rebuilt = v.optional(
-      norm as BaseSchema<unknown, unknown, BaseIssue<unknown>>
-    ) as AnySchema;
-    normalizedSchemaCache.set(key, rebuilt);
-    return rebuilt;
-  }
+		const norm = normalizeSchema(base.wrapped, {
+			...budget,
+			depth: budget.depth + 1
+		});
 
-  if (type === "pipe") {
-    const inner =
-      (base as { inner?: unknown }).inner ??
-      (base as { value?: unknown }).value;
+		if (!norm) {
+			normalizedSchemaCache.set(key, undefined);
+			return undefined;
+		}
 
-    if (!inner) {
-      normalizedSchemaCache.set(key, undefined);
-      return undefined;
-    }
+		const rebuilt = v.nullable(norm as BaseSchema<unknown,unknown,BaseIssue<unknown>>) as AnySchema;
+		normalizedSchemaCache.set(key, rebuilt);
+		return rebuilt;
+	}
 
-    const norm = normalizeSchema(inner, {
-      ...budget,
-      depth: budget.depth + 1,
-    });
+	// pipe wrapper – erase pipe, keep normalized inner schema
+	if (type === 'pipe') {
+		const inner =
+			(base as { inner?: unknown }).inner ??
+			(base as { value?: unknown }).value;
 
-    if (!norm) {
-      normalizedSchemaCache.set(key, undefined);
-      return undefined;
-    }
+		if (!inner) {
+			normalizedSchemaCache.set(key, undefined);
+			return undefined;
+		}
 
-    normalizedSchemaCache.set(key, norm);
-    return norm;
-  }
-  if (type === "object") {
-    const entries = (base as { entries?: Record<string, unknown> }).entries;
-    if (!entries || typeof entries !== "object") {
-      throw new Error("[openapi] object schema missing entries");
-    }
+		const norm = normalizeSchema(inner, {
+			...budget,
+			depth: budget.depth + 1
+		});
 
-    const nextEntries: Record<string, unknown> = {};
-    const keys = Object.keys(entries);
-    if (keys.length > MAX_OBJECT_PROPERTIES) {
-      throw new Error("[openapi] object schema has too many properties");
-    }
+		if (!norm) {
+			normalizedSchemaCache.set(key, undefined);
+			return undefined;
+		}
 
-    let changed = false;
-    for (const [keyName, value] of Object.entries(entries)) {
-      const child = normalizeSchema(value, {
-        ...budget,
-        depth: budget.depth + 1,
-      });
-      if (!child) {
-        changed = true;
-        continue;
-      }
-      if (child !== value) changed = true;
-      nextEntries[keyName] = child;
-    }
+		normalizedSchemaCache.set(key, norm);
+		return norm;
+	}
 
-    if (!changed) {
-      normalizedSchemaCache.set(key, base);
-      return base;
-    }
+	if (type === 'object') {
+		const entries = (base as { entries?: Record<string, unknown> }).entries;
+		if (!entries || typeof entries !== 'object') {
+			throw new Error('[openapi] object schema missing entries');
+		}
 
-    const clone = {
-      ...base,
-      entries: nextEntries,
-    } as unknown as AnySchema;
+		const nextEntries: Record<string, unknown> = {};
+		const keys = Object.keys(entries);
+		if (keys.length > MAX_OBJECT_PROPERTIES) {
+			throw new Error('[openapi] object schema has too many properties');
+		}
 
-    normalizedSchemaCache.set(key, clone);
-    return clone;
-  }
+		let changed = false;
+		for (const [keyName, value] of Object.entries(entries)) {
+			const child = normalizeSchema(value, {
+				...budget,
+				depth: budget.depth + 1
+			});
 
-  if (type === "array") {
-    if (budget.arrayDepth > MAX_ARRAY_NESTING) {
-      throw new Error("[openapi] array nesting depth exceeded");
-    }
+			// drop non-documentable props (e.g. never), keep object valid
+			if (!child) {
+				changed = true;
+				continue;
+			}
 
-    const item = (base as { item?: unknown }).item;
-    if (!item) {
-      throw new Error("[openapi] array schema missing item");
-    }
+			if (child !== value) changed = true;
+			nextEntries[keyName] = child;
+		}
 
-    const normalizedItem = normalizeSchema(item, {
-      ...budget,
-      arrayDepth: budget.arrayDepth + 1,
-      depth: budget.depth + 1,
-    });
+		if (!changed) {
+			normalizedSchemaCache.set(key, base);
+			return base;
+		}
 
-    if (!normalizedItem) {
-      normalizedSchemaCache.set(key, undefined);
-      return undefined;
-    }
+		const clone = {
+			...base,
+			entries: nextEntries
+		} as unknown as AnySchema;
 
-    if (normalizedItem === item) {
-      normalizedSchemaCache.set(key, base);
-      return base;
-    }
+		normalizedSchemaCache.set(key, clone);
+		return clone;
+	}
 
-    const clone = {
-      ...base,
-      item: normalizedItem,
-    } as unknown as AnySchema;
+	if (type === 'array') {
+		if (budget.arrayDepth > MAX_ARRAY_NESTING) {
+			throw new Error('[openapi] array nesting depth exceeded');
+		}
 
-    normalizedSchemaCache.set(key, clone);
-    return clone;
-  }
+		const item = (base as { item?: unknown }).item;
+		if (!item) {
+			throw new Error('[openapi] array schema missing item');
+		}
 
-  if (type === "union") {
-    const options = (base as { options?: unknown[] }).options;
-    if (!options || !Array.isArray(options)) {
-      throw new Error("[openapi] union schema missing options");
-    }
-    if (options.length > MAX_UNION_OPTIONS) {
-      throw new Error("[openapi] union schema has too many options");
-    }
+		const normalizedItem = normalizeSchema(item, {
+			...budget,
+			arrayDepth: budget.arrayDepth + 1,
+			depth: budget.depth + 1
+		});
 
-    let changed = false;
-    const nextOptions: unknown[] = [];
+		if (!normalizedItem) {
+			normalizedSchemaCache.set(key, undefined);
+			return undefined;
+		}
 
-    for (const opt of options) {
-      const child = normalizeSchema(opt, {
-        ...budget,
-        depth: budget.depth + 1,
-      });
-      if (!child) {
-        changed = true;
-        continue;
-      }
-      if (child !== opt) changed = true;
-      nextOptions.push(child);
-    }
-    if (nextOptions.length === 0) {
-      normalizedSchemaCache.set(key, undefined);
-      return undefined;
-    }
-    if (!changed) {
-      normalizedSchemaCache.set(key, base);
-      return base;
-    }
+		if (normalizedItem === item) {
+			normalizedSchemaCache.set(key, base);
+			return base;
+		}
 
-    const clone = {
-      ...base,
-      options: nextOptions,
-    } as unknown as AnySchema;
+		const clone = {
+			...base,
+			item: normalizedItem
+		} as unknown as AnySchema;
 
-    normalizedSchemaCache.set(key, clone);
-    return clone;
-  }
+		normalizedSchemaCache.set(key, clone);
+		return clone;
+	}
 
-  normalizedSchemaCache.set(key, base);
-  return base;
+	if (type === 'union') {
+		const options = (base as { options?: unknown[] }).options;
+		if (!options || !Array.isArray(options)) {
+			throw new Error('[openapi] union schema missing options');
+		}
+		if (options.length > MAX_UNION_OPTIONS) {
+			throw new Error('[openapi] union schema has too many options');
+		}
+
+		let changed = false;
+		const nextOptions: unknown[] = [];
+
+		for (const opt of options) {
+			const child = normalizeSchema(opt, {
+				...budget,
+				depth: budget.depth + 1
+			});
+			if (!child) {
+				changed = true;
+				continue;
+			}
+			if (child !== opt) changed = true;
+			nextOptions.push(child);
+		}
+
+		if (nextOptions.length === 0) {
+			// union<never> → fallback object instead of killing the schema
+			const mapped = v.object({}) as AnySchema;
+			normalizedSchemaCache.set(key, mapped);
+			return mapped;
+		}
+
+		if (!changed) {
+			normalizedSchemaCache.set(key, base);
+			return base;
+		}
+
+		const clone = {
+			...base,
+			options: nextOptions
+		} as unknown as AnySchema;
+
+		normalizedSchemaCache.set(key, clone);
+		return clone;
+	}
+
+	normalizedSchemaCache.set(key, base);
+	return base;
 }
+
 
 /**
  * Final conversion pipeline from Valibot → OpenAPI JSON Schema.
