@@ -142,11 +142,6 @@ export type { EndpointDef, HttpMethod, ResponseDef };
 * `defineEndpoint()` is a **no-op function** (identity function).
 * All behavior happens at the type level and later in the OpenAPI generator.
 *
- * ### 📌 Date fields
- * Valibot’s `v.date()` may be used freely in request/response schemas.
- * During OpenAPI generation, these are automatically converted into
- * `{ type: "string", format: "date-time" }` to work around the current
- * limitation in `@valibot/to-json-schema`.
  *
  */
 export const defineEndpoint = <

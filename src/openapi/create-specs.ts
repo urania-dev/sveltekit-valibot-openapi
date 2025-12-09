@@ -97,7 +97,13 @@ export function convertQueryToParameters(
   const requiredSet = new Set(requiredList);
 
   // improved: allow array-typed query params as well
-  const supportedTypes = new Set(["array", "boolean", "integer", "number", "string"]);
+  const supportedTypes = new Set([
+    "array",
+    "boolean",
+    "integer",
+    "number",
+    "string",
+  ]);
 
   const params: OpenApiParameterObject[] = [];
 
@@ -106,7 +112,8 @@ export function convertQueryToParameters(
 
     const typed = propSchema as Exclude<JsonSchema, boolean>;
     const typeField = (typed as { type?: string | string[] }).type;
-    const enumField = (typed as { enum?: (boolean | null | number | string)[] }).enum;
+    const enumField = (typed as { enum?: (boolean | null | number | string)[] })
+      .enum;
 
     const types = Array.isArray(typeField)
       ? typeField
@@ -213,7 +220,9 @@ export function convertResponses(
         const schemaWithRef = registerComponentSchema(
           schemaRegistry,
           jsonSchema,
-          operationHint ? `${operationHint}_${status}_application_json` : undefined
+          operationHint
+            ? `${operationHint}_${status}_application_json`
+            : undefined
         );
         content = {
           ...(content ?? {}),
@@ -620,7 +629,6 @@ export function normalizeSchema(
   const SIMPLE_PASSTHROUGH = new Set<string>([
     "bigint",
     "boolean",
-    "date",
     "enum",
     "literal",
     "number",
@@ -633,6 +641,12 @@ export function normalizeSchema(
   if (SIMPLE_PASSTHROUGH.has(type)) {
     normalizedSchemaCache.set(key, base);
     return base;
+  }
+
+  if (type === "date") {
+    const mapped = v.date() as AnySchema;
+    normalizedSchemaCache.set(key, mapped);
+    return mapped;
   }
 
   if (type === "never") {
@@ -867,9 +881,9 @@ function buildTagsFromPaths(paths: PathsObject): OpenApiTagObject[] {
  * If `schema.anyOf` is exactly `[T, {type:"null"}]` or vice versa,
  * compact it into `type: [T,"null"]` and drop `anyOf`.
  */
-function compactNullability(schema: {
+function compactNullability(schema: { [key: string]: unknown }): {
   [key: string]: unknown;
-}): { [key: string]: unknown } {
+} {
   const anyOf = schema.anyOf as JsonSchema[] | undefined;
   if (!anyOf || anyOf.length !== 2) return schema;
 
@@ -1131,9 +1145,7 @@ function postProcessJsonSchema(schema: JsonSchema): JsonSchema {
     if (seen.has(keyObj)) return obj;
     seen.add(keyObj);
 
-    const properties = obj.properties as
-      | Record<string, JsonSchema>
-      | undefined;
+    const properties = obj.properties as Record<string, JsonSchema> | undefined;
     if (properties && typeof properties === "object") {
       for (const key of Object.keys(properties)) {
         properties[key] = walk(properties[key]);
@@ -1208,7 +1220,9 @@ function registerComponentSchema(
 
   let name = baseName;
   let index = 1;
-  while (Object.prototype.hasOwnProperty.call(registry.componentsSchemas, name)) {
+  while (
+    Object.prototype.hasOwnProperty.call(registry.componentsSchemas, name)
+  ) {
     name = `${baseName}_${index++}`;
   }
 
@@ -1270,6 +1284,11 @@ function toCleanJsonSchema(
     raw = toJsonSchema(
       prepared as BaseSchema<unknown, unknown, BaseIssue<unknown>>,
       {
+        overrideSchema(context) {
+          if (context.valibotSchema.type === "date") {
+            return { format: "date-time", type: "string" };
+          }
+        },
         typeMode,
       }
     ) as JsonSchema;
