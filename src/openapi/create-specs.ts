@@ -1,36 +1,36 @@
-import type { BaseIssue, BaseSchema, BaseSchemaAsync } from 'valibot';
+import type { BaseIssue, BaseSchema, BaseSchemaAsync } from "valibot";
 
-import { toJsonSchema } from '@valibot/to-json-schema';
-import * as v from 'valibot';
+import { toJsonSchema } from "@valibot/to-json-schema";
+import * as v from "valibot";
 
 import type {
-	AnySchema,
-	EndpointDef,
-	EndpointResponses,
-	GlobModules,
-	HttpMethodLower,
-	JsonSchema,
-	MultiEndpointModule,
-	OpenApiMediaTypeObject,
-	OpenApiOptions,
-	OpenApiParameterObject,
-	OpenApiResponsesObject,
-	OpenApiSpec,
-	OperationObject,
-	PathsObject,
-	QueryParameterDocs,
-	ResponseDef
-} from './types.ts';
+  AnySchema,
+  EndpointDef,
+  EndpointResponses,
+  GlobModules,
+  HttpMethodLower,
+  JsonSchema,
+  MultiEndpointModule,
+  OpenApiMediaTypeObject,
+  OpenApiOptions,
+  OpenApiParameterObject,
+  OpenApiResponsesObject,
+  OpenApiSpec,
+  OperationObject,
+  PathsObject,
+  QueryParameterDocs,
+  ResponseDef,
+} from "./types.ts";
 
-import { getLogger, setOpenApiLogger, shortenFilePath } from './logger.js';
+import { getLogger, setOpenApiLogger, shortenFilePath } from "./logger.js";
 import {
-	assertValibotSchema,
-	hasWrapped,
-	isValibotSchema,
-	isValidMediaType,
-	sanitizeOpenApiModule,
-	VALIBOT_SUPPORTED_TYPES
-} from './validation.js';
+  assertValibotSchema,
+  hasWrapped,
+  isValibotSchema,
+  isValidMediaType,
+  sanitizeOpenApiModule,
+  VALIBOT_SUPPORTED_TYPES,
+} from "./validation.js";
 
 const schemaCache = new WeakMap<object, JsonSchema>();
 const normalizedSchemaCache = new WeakMap<object, AnySchema | undefined>();
@@ -41,9 +41,9 @@ const MAX_UNION_OPTIONS = 32;
 const MAX_ARRAY_NESTING = 16;
 
 interface SchemaTraversalBudget {
-	arrayDepth: number;
-	depth: number;
-	nodeCount: number;
+  arrayDepth: number;
+  depth: number;
+  nodeCount: number;
 }
 
 /**
@@ -69,69 +69,76 @@ interface SchemaTraversalBudget {
  * Output is deterministic: no ordering side-effects.
  */
 export function convertQueryToParameters(
-	schema: unknown,
-	docs?: QueryParameterDocs
+  schema: unknown,
+  docs?: QueryParameterDocs
 ): OpenApiParameterObject[] {
-	const raw = toCleanJsonSchema(schema, 'input');
+  const raw = toCleanJsonSchema(schema, "input");
 
-	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
 
-	const obj = raw as Exclude<JsonSchema, boolean>;
+  const obj = raw as Exclude<JsonSchema, boolean>;
 
-	const properties = obj.properties;
-	if (!properties || typeof properties !== 'object') return [];
+  const properties = obj.properties;
+  if (!properties || typeof properties !== "object") return [];
 
-	const requiredList = Array.isArray(obj.required) ? obj.required : [];
-	const requiredSet = new Set(requiredList);
+  const requiredList = Array.isArray(obj.required) ? obj.required : [];
+  const requiredSet = new Set(requiredList);
 
-	const supportedTypes = new Set(['boolean', 'integer', 'number', 'string']);
+  const supportedTypes = new Set(["boolean", "integer", "number", "string"]);
 
-	const params: OpenApiParameterObject[] = [];
+  const params: OpenApiParameterObject[] = [];
 
-	for (const [name, propSchema] of Object.entries(properties)) {
-		if (!propSchema || typeof propSchema !== 'object') continue;
+  for (const [name, propSchema] of Object.entries(properties)) {
+    if (!propSchema || typeof propSchema !== "object") continue;
 
-		const typed = propSchema as Exclude<JsonSchema, boolean>;
-		const typeField = typed.type;
-		const enumField = typed.enum;
+    const typed = propSchema as Exclude<JsonSchema, boolean>;
+    const typeField = typed.type;
+    const enumField = typed.enum;
 
-		const types = Array.isArray(typeField) ? typeField : typeField ? [typeField] : [];
+    const types = Array.isArray(typeField)
+      ? typeField
+      : typeField
+        ? [typeField]
+        : [];
 
-		const hasSupportedType = types.some((t) => supportedTypes.has(t));
-		const hasEnum =
-			Array.isArray(enumField) &&
-			enumField.length > 0 &&
-			enumField.every(
-				(v) =>
-					typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null
-			);
+    const hasSupportedType = types.some((t) => supportedTypes.has(t));
+    const hasEnum =
+      Array.isArray(enumField) &&
+      enumField.length > 0 &&
+      enumField.every(
+        (v) =>
+          typeof v === "string" ||
+          typeof v === "number" ||
+          typeof v === "boolean" ||
+          v === null
+      );
 
-		if (!hasSupportedType && !hasEnum) continue;
+    if (!hasSupportedType && !hasEnum) continue;
 
-		const param: OpenApiParameterObject = {
-			in: 'query',
-			name,
-			required: requiredSet.has(name),
-			schema: typed
-		};
+    const param: OpenApiParameterObject = {
+      in: "query",
+      name,
+      required: requiredSet.has(name),
+      schema: typed,
+    };
 
-		const override = docs?.[name];
-		if (override) {
-			if (override.description !== undefined) {
-				param.description = override.description;
-			}
-			if (override.example !== undefined) {
-				param.example = override.example;
-			}
-			if (override.examples !== undefined) {
-				param.examples = override.examples;
-			}
-		}
+    const override = docs?.[name];
+    if (override) {
+      if (override.description !== undefined) {
+        param.description = override.description;
+      }
+      if (override.example !== undefined) {
+        param.example = override.example;
+      }
+      if (override.examples !== undefined) {
+        param.examples = override.examples;
+      }
+    }
 
-		params.push(param);
-	}
+    params.push(param);
+  }
 
-	return params;
+  return params;
 }
 
 /**
@@ -155,43 +162,52 @@ export function convertQueryToParameters(
  * - The final shape is strictly OpenAPI: no Valibot-specific metadata leaks,
  *   no `$schema` keyword, no transforms.
  */
-export function convertResponses(responses: EndpointResponses): OpenApiResponsesObject {
-	const out: OpenApiResponsesObject = {};
+export function convertResponses(
+  responses: EndpointResponses
+): OpenApiResponsesObject {
+  const out: OpenApiResponsesObject = {};
 
-	for (const [status, def] of Object.entries(responses) as Array<[string, ResponseDef]>) {
-		const base: OpenApiResponsesObject[string] = {
-			description: def.description ?? ''
-		};
+  for (const [status, def] of Object.entries(responses) as Array<
+    [string, ResponseDef]
+  >) {
+    const base: OpenApiResponsesObject[string] = {
+      description: def.description ?? "",
+    };
 
-		let content: Record<string, OpenApiMediaTypeObject> | undefined;
+    let content: Record<string, OpenApiMediaTypeObject> | undefined;
 
-		if (def.content) {
-			const converted = convertContentMap(def.content as Record<string, unknown>, 'output');
-			if (Object.keys(converted).length > 0) {
-				content = { ...(content ?? {}), ...converted };
-			}
-		}
+    if (def.content) {
+      const converted = convertContentMap(
+        def.content as Record<string, unknown>,
+        "output"
+      );
+      if (Object.keys(converted).length > 0) {
+        content = { ...(content ?? {}), ...converted };
+      }
+    }
 
-		if (def.schema) {
-			const hasJson = content && Object.prototype.hasOwnProperty.call(content, 'application/json');
+    if (def.schema) {
+      const hasJson =
+        content &&
+        Object.prototype.hasOwnProperty.call(content, "application/json");
 
-			if (!hasJson) {
-				const jsonSchema = toCleanJsonSchema(def.schema, 'output');
-				content = {
-					...(content ?? {}),
-					'application/json': { schema: jsonSchema }
-				};
-			}
-		}
+      if (!hasJson) {
+        const jsonSchema = toCleanJsonSchema(def.schema, "output");
+        content = {
+          ...(content ?? {}),
+          "application/json": { schema: jsonSchema },
+        };
+      }
+    }
 
-		if (content && Object.keys(content).length > 0) {
-			base.content = content;
-		}
+    if (content && Object.keys(content).length > 0) {
+      base.content = content;
+    }
 
-		out[status] = base;
-	}
+    out[status] = base;
+  }
 
-	return out;
+  return out;
 }
 
 /**
@@ -243,144 +259,152 @@ export function convertResponses(responses: EndpointResponses): OpenApiResponses
  * @param options  Optional OpenAPI metadata (title, version, servers, auth)
  * @returns        A Promise resolving to an `OpenApiSpec` object
  */
-export async function createOpenApiSpec<TEndpoint extends EndpointDef = EndpointDef>(
-	modules: GlobModules,
-	options: OpenApiOptions = {}
-): Promise<OpenApiSpec> {
-	if (options.logger) {
-		setOpenApiLogger(options.logger);
-	}
+export async function createOpenApiSpec<
+  TEndpoint extends EndpointDef = EndpointDef,
+>(modules: GlobModules, options: OpenApiOptions = {}): Promise<OpenApiSpec> {
+  if (options.logger) {
+    setOpenApiLogger(options.logger);
+  }
 
-	const paths: PathsObject = {};
-	const logger = getLogger();
+  const paths: PathsObject = {};
+  const logger = getLogger();
 
-	for (const [file, loader] of Object.entries(modules)) {
-		const loaded = await loader();
-		const module = await unwrapModule<TEndpoint>(loaded);
+  for (const [file, loader] of Object.entries(modules)) {
+    const loaded = await loader();
+    const module = await unwrapModule<TEndpoint>(loaded);
 
-		if (!module || !module._openapi) continue;
+    if (!module || !module._openapi) continue;
 
-		for (const [method, def] of Object.entries(module._openapi) as Array<
-			[string, TEndpoint | undefined]
-		>) {
-			if (!def) continue;
+    for (const [method, def] of Object.entries(module._openapi) as Array<
+      [string, TEndpoint | undefined]
+    >) {
+      if (!def) continue;
 
-			try {
-				const path = def.path ?? inferPathFromFile(file);
-				if (options.basePath && !path.startsWith(options.basePath)) continue;
+      try {
+        const path = def.path ?? inferPathFromFile(file);
+        if (options.basePath && !path.startsWith(options.basePath)) continue;
 
-				const lower = toLowerHttpMethod(def.method);
-				if (!paths[path]) paths[path] = {};
+        const lower = toLowerHttpMethod(def.method);
+        if (!paths[path]) paths[path] = {};
 
-				const operation: OperationObject = {
-					description: def.description,
-					operationId: def.operationId,
-					responses: convertResponses(def.responses as EndpointResponses),
-					summary: def.summary,
-					tags: def.tags
-				};
+        const operation: OperationObject = {
+          description: def.description,
+          operationId: def.operationId,
+          responses: convertResponses(def.responses as EndpointResponses),
+          summary: def.summary,
+          tags: def.tags,
+        };
 
-				if (def.deprecated !== undefined) {
-					operation.deprecated = def.deprecated;
-				}
+        if (def.deprecated !== undefined) {
+          operation.deprecated = def.deprecated;
+        }
 
-				const security = def.security ?? options.security;
-				if (security && security.length > 0) {
-					operation.security = security;
-				}
+        const security = def.security ?? options.security;
+        if (security && security.length > 0) {
+          operation.security = security;
+        }
 
-				const pathParams = inferPathParamsFromPath(path);
+        const pathParams = inferPathParamsFromPath(path);
 
-				const queryParams = def.query
-					? convertQueryToParameters(def.query, def.queryParams as QueryParameterDocs | undefined)
-					: [];
+        const queryParams = def.query
+          ? convertQueryToParameters(
+              def.query,
+              def.queryParams as QueryParameterDocs | undefined
+            )
+          : [];
 
-				const allParams: OpenApiParameterObject[] = [];
+        const allParams: OpenApiParameterObject[] = [];
 
-				if (pathParams.length > 0) {
-					allParams.push(...pathParams);
-				}
-				if (queryParams.length > 0) {
-					allParams.push(...queryParams);
-				}
+        if (pathParams.length > 0) {
+          allParams.push(...pathParams);
+        }
+        if (queryParams.length > 0) {
+          allParams.push(...queryParams);
+        }
 
-				if (allParams.length > 0) {
-					operation.parameters = allParams;
-				}
+        if (allParams.length > 0) {
+          operation.parameters = allParams;
+        }
 
-				if (def.body) {
-					if (typeof def.body === 'object' && def.body !== null && 'content' in def.body) {
-						const {
-							content: contentMap,
-							description,
-							required
-						} = def.body as {
-							content?: Record<string, unknown>;
-							description?: string;
-							required?: boolean;
-						};
+        if (def.body) {
+          if (
+            typeof def.body === "object" &&
+            def.body !== null &&
+            "content" in def.body
+          ) {
+            const {
+              content: contentMap,
+              description,
+              required,
+            } = def.body as {
+              content?: Record<string, unknown>;
+              description?: string;
+              required?: boolean;
+            };
 
-						if (contentMap && Object.keys(contentMap).length > 0) {
-							const content = convertContentMap(contentMap, 'input');
-							if (Object.keys(content).length > 0) {
-								operation.requestBody = {
-									...(description !== undefined ? { description } : {}),
-									...(required !== undefined ? { required } : {}),
-									content
-								};
-							}
-						}
-					} else {
-						const schema = toCleanJsonSchema(def.body, 'input');
-						operation.requestBody = {
-							content: {
-								'application/json': { schema }
-							},
-							required: true
-						};
-					}
-				}
+            if (contentMap && Object.keys(contentMap).length > 0) {
+              const content = convertContentMap(contentMap, "input");
+              if (Object.keys(content).length > 0) {
+                operation.requestBody = {
+                  ...(description !== undefined ? { description } : {}),
+                  ...(required !== undefined ? { required } : {}),
+                  content,
+                };
+              }
+            }
+          } else {
+            const schema = toCleanJsonSchema(def.body, "input");
+            operation.requestBody = {
+              content: {
+                "application/json": { schema },
+              },
+              required: true,
+            };
+          }
+        }
 
-				paths[path]![lower] = operation;
-			} catch (err) {
-				const context = {
-					file: shortenFilePath(file),
-					message: err instanceof Error ? err.message : String(err),
-					method
-				};
+        paths[path]![lower] = operation;
+      } catch (err) {
+        const context = {
+          file: shortenFilePath(file),
+          message: err instanceof Error ? err.message : String(err),
+          method,
+        };
 
-				logger.error(
-					'[openapi] Failed to build OpenAPI operation from endpoint definition',
-					context
-				);
+        logger.error(
+          "[openapi] Failed to build OpenAPI operation from endpoint definition",
+          context
+        );
 
-				continue;
-			}
-		}
-	}
+        continue;
+      }
+    }
+  }
 
-	const info: OpenApiSpec['info'] = {
-		title: options.info?.title ?? 'SvelteKit API',
-		version: options.info?.version ?? '1.0.0',
-		...(options.info?.description ? { description: options.info.description } : {})
-	};
+  const info: OpenApiSpec["info"] = {
+    title: options.info?.title ?? "SvelteKit API",
+    version: options.info?.version ?? "1.0.0",
+    ...(options.info?.description
+      ? { description: options.info.description }
+      : {}),
+  };
 
-	const spec: OpenApiSpec = {
-		info,
-		openapi: '3.1.0',
-		paths,
-		...(options.servers ? { servers: options.servers } : {}),
-		...(options.securitySchemes
-			? {
-					components: {
-						securitySchemes: options.securitySchemes
-					}
-				}
-			: {}),
-		...(options.security ? { security: options.security } : {})
-	};
+  const spec: OpenApiSpec = {
+    info,
+    openapi: "3.1.0",
+    paths,
+    ...(options.servers ? { servers: options.servers } : {}),
+    ...(options.securitySchemes
+      ? {
+          components: {
+            securitySchemes: options.securitySchemes,
+          },
+        }
+      : {}),
+    ...(options.security ? { security: options.security } : {}),
+  };
 
-	return spec;
+  return spec;
 }
 
 /**
@@ -410,28 +434,31 @@ export async function createOpenApiSpec<TEndpoint extends EndpointDef = Endpoint
  * @param options.baseDir - optional custom base directory prefix (defaults to "/src/routes")
  * @returns OpenAPI-compatible path (e.g. "/api/todos/{id}")
  */
-export function inferPathFromFile(file: string, options?: { baseDir?: string }): string {
-	const baseDir = options?.baseDir ?? '/src/routes';
+export function inferPathFromFile(
+  file: string,
+  options?: { baseDir?: string }
+): string {
+  const baseDir = options?.baseDir ?? "/src/routes";
 
-	let path = file;
+  let path = file;
 
-	if (path.startsWith(baseDir)) {
-		path = path.slice(baseDir.length);
-	} else {
-		getLogger().warn(
-			'[openapi] inferPathFromFile: file path does not start with configured baseDir.',
-			{ baseDir, file: shortenFilePath(file) }
-		);
-	}
+  if (path.startsWith(baseDir)) {
+    path = path.slice(baseDir.length);
+  } else {
+    getLogger().warn(
+      "[openapi] inferPathFromFile: file path does not start with configured baseDir.",
+      { baseDir, file: shortenFilePath(file) }
+    );
+  }
 
-	path = path.replace(/\/\+server\.(ts|js)$/, '');
-	path = path.replace(/\[([^\]]+)\]/g, '{$1}');
+  path = path.replace(/\/\+server\.(ts|js)$/, "");
+  path = path.replace(/\[([^\]]+)\]/g, "{$1}");
 
-	if (!path.startsWith('/')) {
-		path = `/${path}`;
-	}
+  if (!path.startsWith("/")) {
+    path = `/${path}`;
+  }
 
-	return path;
+  return path;
 }
 
 /**
@@ -448,27 +475,29 @@ export function inferPathFromFile(file: string, options?: { baseDir?: string }):
  * - Does *not* validate naming conventions. If the user names `{user-id}`,
  *   that is passed through exactly.
  */
-export function inferPathParamsFromPath(path: string): OpenApiParameterObject[] {
-	const params: OpenApiParameterObject[] = [];
-	const seen = new Set<string>();
+export function inferPathParamsFromPath(
+  path: string
+): OpenApiParameterObject[] {
+  const params: OpenApiParameterObject[] = [];
+  const seen = new Set<string>();
 
-	const re = /{([^}]+)}/g;
-	let match: null | RegExpExecArray;
+  const re = /{([^}]+)}/g;
+  let match: null | RegExpExecArray;
 
-	while ((match = re.exec(path)) !== null) {
-		const name = match[1]?.trim();
-		if (!name || seen.has(name)) continue;
-		seen.add(name);
+  while ((match = re.exec(path)) !== null) {
+    const name = match[1]?.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
 
-		params.push({
-			in: 'path',
-			name,
-			required: true,
-			schema: { type: 'string' }
-		});
-	}
+    params.push({
+      in: "path",
+      name,
+      required: true,
+      schema: { type: "string" },
+    });
+  }
 
-	return params;
+  return params;
 }
 
 /**
@@ -488,36 +517,36 @@ export function inferPathParamsFromPath(path: string): OpenApiParameterObject[] 
  * - Output is deterministic; ordering matches Object.entries ordering.
  */
 function convertContentMap(
-	content: Record<string, unknown>,
-	typeMode: 'input' | 'output'
+  content: Record<string, unknown>,
+  typeMode: "input" | "output"
 ): Record<string, OpenApiMediaTypeObject> {
-	const out: Record<string, OpenApiMediaTypeObject> = {};
+  const out: Record<string, OpenApiMediaTypeObject> = {};
 
-	for (const [mediaType, schema] of Object.entries(content)) {
-		if (typeof mediaType !== 'string' || !isValidMediaType(mediaType)) {
-			throw new Error(`[openapi] Invalid media type: "${mediaType}"`);
-		}
-		if (!schema) continue;
+  for (const [mediaType, schema] of Object.entries(content)) {
+    if (typeof mediaType !== "string" || !isValidMediaType(mediaType)) {
+      throw new Error(`[openapi] Invalid media type: "${mediaType}"`);
+    }
+    if (!schema) continue;
 
-		assertValibotSchema(schema, `content["${mediaType}"]`);
+    assertValibotSchema(schema, `content["${mediaType}"]`);
 
-		const jsonSchema = toCleanJsonSchema(schema, typeMode);
-		out[mediaType] = { schema: jsonSchema };
-	}
+    const jsonSchema = toCleanJsonSchema(schema, typeMode);
+    out[mediaType] = { schema: jsonSchema };
+  }
 
-	return out;
+  return out;
 }
 
 /**
  * Detects if a Valibot schema is async (`schema.async === true`).
  */
 function isAsyncSchema(
-	schema: unknown
+  schema: unknown
 ): schema is BaseSchemaAsync<unknown, unknown, BaseIssue<unknown>> {
-	if (!isValibotSchema(schema)) return false;
+  if (!isValibotSchema(schema)) return false;
 
-	const s = schema as { async?: unknown };
-	return s.async === true;
+  const s = schema as { async?: unknown };
+  return s.async === true;
 }
 
 /**
@@ -541,74 +570,91 @@ function isAsyncSchema(
  *
  */
 function normalizeAsync(
-	_schema: unknown,
-	depth = 0
+  _schema: unknown,
+  depth = 0
 ): BaseSchema<unknown, unknown, BaseIssue<unknown>> {
-	if (!isAsyncSchema(_schema)) {
-		return _schema as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
-	}
+  if (!isAsyncSchema(_schema)) {
+    return _schema as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
+  }
 
-	if (depth > MAX_SCHEMA_DEPTH) {
-		return v.object({}) as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
-	}
+  if (depth > MAX_SCHEMA_DEPTH) {
+    return v.object({}) as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
+  }
 
-	const schema = _schema as BaseSchemaAsync<unknown, unknown, BaseIssue<unknown>>;
-	const { type } = schema;
+  const schema = _schema as BaseSchemaAsync<
+    unknown,
+    unknown,
+    BaseIssue<unknown>
+  >;
+  const { type } = schema;
 
-	if (type === 'object') {
-		const entries =
-			('entries' in schema && (schema as { entries?: Record<string, unknown> }).entries) || {};
-		const converted: Record<string, BaseSchema<unknown, unknown, BaseIssue<unknown>>> = {};
+  if (type === "object") {
+    const entries =
+      ("entries" in schema &&
+        (schema as { entries?: Record<string, unknown> }).entries) ||
+      {};
+    const converted: Record<
+      string,
+      BaseSchema<unknown, unknown, BaseIssue<unknown>>
+    > = {};
 
-		for (const [k, vSchema] of Object.entries(entries)) {
-			converted[k] = normalizeAsync(vSchema, depth + 1);
-		}
-		return v.object(converted) as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
-	}
+    for (const [k, vSchema] of Object.entries(entries)) {
+      converted[k] = normalizeAsync(vSchema, depth + 1);
+    }
+    return v.object(converted) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
 
-	if (type === 'array' && 'item' in schema) {
-		const item = (schema as { item?: unknown }).item;
-		return v.array(normalizeAsync(item, depth + 1)) as BaseSchema<
-			unknown,
-			unknown,
-			BaseIssue<unknown>
-		>;
-	}
+  if (type === "array" && "item" in schema) {
+    const item = (schema as { item?: unknown }).item;
+    return v.array(normalizeAsync(item, depth + 1)) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
 
-	if (type === 'optional' && 'wrapped' in schema) {
-		const wrapped = (schema as { wrapped?: unknown }).wrapped;
-		return v.optional(normalizeAsync(wrapped, depth + 1)) as BaseSchema<
-			unknown,
-			unknown,
-			BaseIssue<unknown>
-		>;
-	}
+  if (type === "optional" && "wrapped" in schema) {
+    const wrapped = (schema as { wrapped?: unknown }).wrapped;
+    return v.optional(normalizeAsync(wrapped, depth + 1)) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
 
-	if (type === 'nullable' && 'wrapped' in schema) {
-		const wrapped = (schema as { wrapped?: unknown }).wrapped;
-		return v.nullable(normalizeAsync(wrapped, depth + 1)) as BaseSchema<
-			unknown,
-			unknown,
-			BaseIssue<unknown>
-		>;
-	}
+  if (type === "nullable" && "wrapped" in schema) {
+    const wrapped = (schema as { wrapped?: unknown }).wrapped;
+    return v.nullable(normalizeAsync(wrapped, depth + 1)) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
 
-	if (type === 'union' && 'options' in schema) {
-		const options = (schema as { options?: unknown[] }).options ?? [];
-		const normalized = options.map((o) => normalizeAsync(o, depth + 1));
-		return v.union(normalized) as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
-	}
+  if (type === "union" && "options" in schema) {
+    const options = (schema as { options?: unknown[] }).options ?? [];
+    const normalized = options.map((o) => normalizeAsync(o, depth + 1));
+    return v.union(normalized) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
 
-	if (type === 'pipe') {
-		const inner =
-			('inner' in schema && (schema as { inner?: unknown }).inner) ??
-			('value' in schema && (schema as { value?: unknown }).value) ??
-			schema;
+  if (type === "pipe") {
+    const inner =
+      ("inner" in schema && (schema as { inner?: unknown }).inner) ??
+      ("value" in schema && (schema as { value?: unknown }).value) ??
+      schema;
 
-		return normalizeAsync(inner, depth + 1);
-	}
+    return normalizeAsync(inner, depth + 1);
+  }
 
-	return schema as unknown as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
+  return schema as unknown as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
 }
 
 /**
@@ -639,210 +685,232 @@ function normalizeAsync(
  *   forcing callers to reject the schema rather than silently emitting
  *   garbage.
  */
-function normalizeSchema(schema: unknown, budget: SchemaTraversalBudget): AnySchema | undefined {
-	if (budget.nodeCount++ > MAX_SCHEMA_NODES) {
-		throw new Error('[openapi] Schema node limit exceeded');
-	}
-	if (budget.depth > MAX_SCHEMA_DEPTH) {
-		throw new Error('[openapi] Schema depth limit exceeded');
-	}
+function normalizeSchema(
+  schema: unknown,
+  budget: SchemaTraversalBudget
+): AnySchema | undefined {
+  if (budget.nodeCount++ > MAX_SCHEMA_NODES) {
+    throw new Error("[openapi] Schema node limit exceeded");
+  }
+  if (budget.depth > MAX_SCHEMA_DEPTH) {
+    throw new Error("[openapi] Schema depth limit exceeded");
+  }
 
-	if (isAsyncSchema(schema)) {
-		schema = normalizeAsync(schema, budget.depth);
-	}
+  if (isAsyncSchema(schema)) {
+    schema = normalizeAsync(schema, budget.depth);
+  }
 
-	if (!isValibotSchema(schema)) return undefined;
+  if (!isValibotSchema(schema)) return undefined;
 
-	const key = schema as object;
-	const cached = normalizedSchemaCache.get(key);
-	if (cached !== undefined) return cached;
+  const key = schema as object;
+  const cached = normalizedSchemaCache.get(key);
+  if (cached !== undefined) return cached;
 
-	const base = schema as AnySchema;
-	const type = (base as { type?: string }).type;
-	if (!type || !VALIBOT_SUPPORTED_TYPES.has(type)) {
-		throw new Error(`[openapi] Unsupported Valibot schema type "${type ?? 'unknown'}"`);
-	}
+  const base = schema as AnySchema;
+  const type = (base as { type?: string }).type;
+  if (!type || !VALIBOT_SUPPORTED_TYPES.has(type)) {
+    throw new Error(
+      `[openapi] Unsupported Valibot schema type "${type ?? "unknown"}"`
+    );
+  }
 
-	if (type === 'date') {
-		const mapped = v.string() as AnySchema;
-		normalizedSchemaCache.set(key, mapped);
-		return mapped;
-	}
+  if (type === "date") {
+    const mapped = v.string() as AnySchema;
+    normalizedSchemaCache.set(key, mapped);
+    return mapped;
+  }
 
-	if (type === 'never') {
-		normalizedSchemaCache.set(key, undefined);
-		return undefined;
-	}
-if (type === 'optional' || type === 'nullable') {
-  if (!hasWrapped(base)) {
+  if (type === "never") {
     normalizedSchemaCache.set(key, undefined);
     return undefined;
   }
+  if (type === "optional") {
+    if (!hasWrapped(base)) {
+      normalizedSchemaCache.set(key, undefined);
+      return undefined;
+    }
 
-  const norm = normalizeSchema(base.wrapped, {
-    ...budget,
-    depth: budget.depth + 1
-  });
+    const norm = normalizeSchema(base.wrapped, {
+      ...budget,
+      depth: budget.depth + 1,
+    });
 
-  if (!norm) {
-    normalizedSchemaCache.set(key, undefined);
-    return undefined;
+    if (!norm) {
+      normalizedSchemaCache.set(key, undefined);
+      return undefined;
+    }
+
+    const rebuilt = v.optional(
+      norm as BaseSchema<unknown, unknown, BaseIssue<unknown>>
+    ) as AnySchema;
+    normalizedSchemaCache.set(key, rebuilt);
+    return rebuilt;
+  }
+  if (type === "nullable") {
+    if (!hasWrapped(base)) {
+      normalizedSchemaCache.set(key, undefined);
+      return undefined;
+    }
+
+    const norm = normalizeSchema(base.wrapped, {
+      ...budget,
+      depth: budget.depth + 1,
+    });
+
+    if (!norm) {
+      normalizedSchemaCache.set(key, undefined);
+      return undefined;
+    }
+
+    const rebuilt = v.optional(
+      norm as BaseSchema<unknown, unknown, BaseIssue<unknown>>
+    ) as AnySchema;
+    normalizedSchemaCache.set(key, rebuilt);
+    return rebuilt;
   }
 
-  if (norm === base.wrapped) {
-    normalizedSchemaCache.set(key, base);
-    return base;
+  if (type === "pipe") {
+    const inner =
+      (base as { inner?: unknown }).inner ??
+      (base as { value?: unknown }).value;
+
+    if (!inner) {
+      normalizedSchemaCache.set(key, undefined);
+      return undefined;
+    }
+
+    const norm = normalizeSchema(inner, {
+      ...budget,
+      depth: budget.depth + 1,
+    });
+
+    if (!norm) {
+      normalizedSchemaCache.set(key, undefined);
+      return undefined;
+    }
+
+    normalizedSchemaCache.set(key, norm);
+    return norm;
+  }
+  if (type === "object") {
+    const entries = (base as { entries?: Record<string, unknown> }).entries;
+    if (!entries || typeof entries !== "object") {
+      throw new Error("[openapi] object schema missing entries");
+    }
+
+    const nextEntries: Record<string, unknown> = {};
+    const keys = Object.keys(entries);
+    if (keys.length > MAX_OBJECT_PROPERTIES) {
+      throw new Error("[openapi] object schema has too many properties");
+    }
+
+    let changed = false;
+    for (const [keyName, value] of Object.entries(entries)) {
+      const child = normalizeSchema(value, {
+        ...budget,
+        depth: budget.depth + 1,
+      });
+      if (!child) {
+        changed = true;
+        continue;
+      }
+      if (child !== value) changed = true;
+      nextEntries[keyName] = child;
+    }
+
+    if (!changed) {
+      normalizedSchemaCache.set(key, base);
+      return base;
+    }
+
+    const clone = {
+      ...base,
+      entries: nextEntries,
+    } as unknown as AnySchema;
+
+    normalizedSchemaCache.set(key, clone);
+    return clone;
   }
 
-  const clone = { ...base, wrapped: norm } 
-  normalizedSchemaCache.set(key, clone);
-  return clone;
-}
+  if (type === "array") {
+    if (budget.arrayDepth > MAX_ARRAY_NESTING) {
+      throw new Error("[openapi] array nesting depth exceeded");
+    }
 
+    const item = (base as { item?: unknown }).item;
+    if (!item) {
+      throw new Error("[openapi] array schema missing item");
+    }
 
-// PIPE WRAPPER
-if (type === 'pipe') {
-  const inner =
-    (base as { inner?: unknown }).inner ??
-    (base as { value?: unknown }).value;
+    const normalizedItem = normalizeSchema(item, {
+      ...budget,
+      arrayDepth: budget.arrayDepth + 1,
+      depth: budget.depth + 1,
+    });
 
-  if (!inner) {
-    normalizedSchemaCache.set(key, undefined);
-    return undefined;
+    if (!normalizedItem) {
+      normalizedSchemaCache.set(key, undefined);
+      return undefined;
+    }
+
+    if (normalizedItem === item) {
+      normalizedSchemaCache.set(key, base);
+      return base;
+    }
+
+    const clone = {
+      ...base,
+      item: normalizedItem,
+    } as unknown as AnySchema;
+
+    normalizedSchemaCache.set(key, clone);
+    return clone;
   }
 
-  const norm = normalizeSchema(inner, {
-    ...budget,
-    depth: budget.depth + 1
-  });
+  if (type === "union") {
+    const options = (base as { options?: unknown[] }).options;
+    if (!options || !Array.isArray(options)) {
+      throw new Error("[openapi] union schema missing options");
+    }
+    if (options.length > MAX_UNION_OPTIONS) {
+      throw new Error("[openapi] union schema has too many options");
+    }
 
-  if (!norm) {
-    normalizedSchemaCache.set(key, undefined);
-    return undefined;
+    let changed = false;
+    const nextOptions: unknown[] = [];
+
+    for (const opt of options) {
+      const child = normalizeSchema(opt, {
+        ...budget,
+        depth: budget.depth + 1,
+      });
+      if (!child) {
+        changed = true;
+        continue;
+      }
+      if (child !== opt) changed = true;
+      nextOptions.push(child);
+    }
+    if (nextOptions.length === 0) {
+      normalizedSchemaCache.set(key, undefined);
+      return undefined;
+    }
+    if (!changed) {
+      normalizedSchemaCache.set(key, base);
+      return base;
+    }
+
+    const clone = {
+      ...base,
+      options: nextOptions,
+    } as unknown as AnySchema;
+
+    normalizedSchemaCache.set(key, clone);
+    return clone;
   }
 
-  normalizedSchemaCache.set(key, norm);
-  return norm;
-}
-	if (type === 'object') {
-		const entries = (base as { entries?: Record<string, unknown> }).entries;
-		if (!entries || typeof entries !== 'object') {
-			throw new Error('[openapi] object schema missing entries');
-		}
-
-		const nextEntries: Record<string, unknown> = {};
-		const keys = Object.keys(entries);
-		if (keys.length > MAX_OBJECT_PROPERTIES) {
-			throw new Error('[openapi] object schema has too many properties');
-		}
-
-		let changed = false;
-		for (const [keyName, value] of Object.entries(entries)) {
-			const child = normalizeSchema(value, {
-				...budget,
-				depth: budget.depth + 1
-			});
-			if (!child) {
-				changed = true;
-				continue;
-			}
-			if (child !== value) changed = true;
-			nextEntries[keyName] = child;
-		}
-
-		if (!changed) {
-			normalizedSchemaCache.set(key, base);
-			return base;
-		}
-
-		const clone = {
-			...base,
-			entries: nextEntries
-		} as unknown as AnySchema;
-
-		normalizedSchemaCache.set(key, clone);
-		return clone;
-	}
-
-	if (type === 'array') {
-		if (budget.arrayDepth > MAX_ARRAY_NESTING) {
-			throw new Error('[openapi] array nesting depth exceeded');
-		}
-
-		const item = (base as { item?: unknown }).item;
-		if (!item) {
-			throw new Error('[openapi] array schema missing item');
-		}
-
-		const normalizedItem = normalizeSchema(item, {
-			...budget,
-			arrayDepth: budget.arrayDepth + 1,
-			depth: budget.depth + 1
-		});
-
-		if (!normalizedItem) {
-			normalizedSchemaCache.set(key, undefined);
-			return undefined;
-		}
-
-		if (normalizedItem === item) {
-			normalizedSchemaCache.set(key, base);
-			return base;
-		}
-
-		const clone = {
-			...base,
-			item: normalizedItem
-		} as unknown as AnySchema;
-
-		normalizedSchemaCache.set(key, clone);
-		return clone;
-	}
-
-	if (type === 'union') {
-		const options = (base as { options?: unknown[] }).options;
-		if (!options || !Array.isArray(options)) {
-			throw new Error('[openapi] union schema missing options');
-		}
-		if (options.length > MAX_UNION_OPTIONS) {
-			throw new Error('[openapi] union schema has too many options');
-		}
-
-		let changed = false;
-		const nextOptions: unknown[] = [];
-
-		for (const opt of options) {
-			const child = normalizeSchema(opt, {
-				...budget,
-				depth: budget.depth + 1
-			});
-			if (!child) {
-				changed = true;
-				continue;
-			}
-			if (child !== opt) changed = true;
-			nextOptions.push(child);
-		}
-		if (nextOptions.length === 0) {
-			normalizedSchemaCache.set(key, undefined);
-			return undefined;
-		}
-		if (!changed) {
-			normalizedSchemaCache.set(key, base);
-			return base;
-		}
-
-		const clone = {
-			...base,
-			options: nextOptions
-		} as unknown as AnySchema;
-
-		normalizedSchemaCache.set(key, clone);
-		return clone;
-	}
-
-	normalizedSchemaCache.set(key, base);
-	return base;
+  normalizedSchemaCache.set(key, base);
+  return base;
 }
 
 /**
@@ -866,60 +934,71 @@ if (type === 'pipe') {
  * - Output is always OpenAPI-compatible JSON Schema.
  * - Never returns Valibot-specific annotation.
  */
-function toCleanJsonSchema(schema: unknown, typeMode: 'input' | 'output'): JsonSchema {
-	const budget: SchemaTraversalBudget = {
-		arrayDepth: 0,
-		depth: 0,
-		nodeCount: 0
-	};
+function toCleanJsonSchema(
+  schema: unknown,
+  typeMode: "input" | "output"
+): JsonSchema {
+  const budget: SchemaTraversalBudget = {
+    arrayDepth: 0,
+    depth: 0,
+    nodeCount: 0,
+  };
 
-	const prepared = normalizeSchema(schema, budget);
+  const prepared = normalizeSchema(schema, budget);
 
-	if (!prepared) {
-		throw new Error('[openapi] Non-convertible schema encountered');
-	}
+  if (!prepared) {
+    throw new Error("[openapi] Non-convertible schema encountered");
+  }
 
-	const key = prepared as object;
-	const cached = schemaCache.get(key);
-	if (cached) return cached;
+  const key = prepared as object;
+  const cached = schemaCache.get(key);
+  if (cached) return cached;
 
-	let raw: JsonSchema;
-	try {
-		raw = toJsonSchema(prepared as BaseSchema<unknown, unknown, BaseIssue<unknown>>, {
-			typeMode
-		}) as JsonSchema;
-	} catch (err) {
-		const message =
-			err instanceof Error ? err.message : 'Unknown error during Valibot → JSON Schema conversion';
+  let raw: JsonSchema;
+  try {
+    raw = toJsonSchema(
+      prepared as BaseSchema<unknown, unknown, BaseIssue<unknown>>,
+      {
+        typeMode,
+      }
+    ) as JsonSchema;
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Unknown error during Valibot → JSON Schema conversion";
 
-		getLogger().error('[openapi] Failed to convert Valibot schema to JSON Schema', {
-			message,
-			typeMode
-		});
+    getLogger().error(
+      "[openapi] Failed to convert Valibot schema to JSON Schema",
+      {
+        message,
+        typeMode,
+      }
+    );
 
-		throw err instanceof Error ? err : new Error(message);
-	}
+    throw err instanceof Error ? err : new Error(message);
+  }
 
-	if (typeof raw === 'boolean') {
-		schemaCache.set(key, raw);
-		return raw;
-	}
+  if (typeof raw === "boolean") {
+    schemaCache.set(key, raw);
+    return raw;
+  }
 
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	const { $schema, ...rest } = raw as {
-		$schema?: string;
-	} & Exclude<JsonSchema, boolean>;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { $schema, ...rest } = raw as {
+    $schema?: string;
+  } & Exclude<JsonSchema, boolean>;
 
-	schemaCache.set(key, rest);
-	return rest;
+  schemaCache.set(key, rest);
+  return rest;
 }
 
 /**
  * Converts an uppercase HTTP method (as used in SvelteKit handlers) to the
  * lowercase format required by OpenAPI.
  */
-function toLowerHttpMethod(method: EndpointDef['method']): HttpMethodLower {
-	return method.toLowerCase() as HttpMethodLower;
+function toLowerHttpMethod(method: EndpointDef["method"]): HttpMethodLower {
+  return method.toLowerCase() as HttpMethodLower;
 }
 
 /**
@@ -943,22 +1022,24 @@ function toLowerHttpMethod(method: EndpointDef['method']): HttpMethodLower {
  * your spec, preserving safety and correctness.
  */
 async function unwrapModule<TEndpoint extends EndpointDef>(
-	maybe: unknown,
-	depth = 0
+  maybe: unknown,
+  depth = 0
 ): Promise<MultiEndpointModule<TEndpoint> | null> {
-	if (depth > 2) return null;
+  if (depth > 2) return null;
 
-	try {
-		const sanitized = sanitizeOpenApiModule((maybe ?? {}) as Record<string, unknown>);
-		return sanitized as MultiEndpointModule<TEndpoint>;
-	} catch {
-		// not a valid _openapi module, fall through
-	}
+  try {
+    const sanitized = sanitizeOpenApiModule(
+      (maybe ?? {}) as Record<string, unknown>
+    );
+    return sanitized as MultiEndpointModule<TEndpoint>;
+  } catch {
+    // not a valid _openapi module, fall through
+  }
 
-	if (typeof maybe === 'function' && maybe.length === 0) {
-		const next = await (maybe as () => Promise<unknown>)();
-		return unwrapModule<TEndpoint>(next, depth + 1);
-	}
+  if (typeof maybe === "function" && maybe.length === 0) {
+    const next = await (maybe as () => Promise<unknown>)();
+    return unwrapModule<TEndpoint>(next, depth + 1);
+  }
 
-	return null;
+  return null;
 }
