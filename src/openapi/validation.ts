@@ -60,26 +60,40 @@ export function sanitizeOpenApiModule(mod: Record<string, unknown>): MultiEndpoi
  *   The library focuses strictly on the core CRUD verbs unless extended.
  */
 const VALID_METHODS = new Set(['DELETE', 'GET', 'PATCH', 'POST', 'PUT']);
-
 export const VALIBOT_SUPPORTED_TYPES = new Set<string>([
-	'array',
-	'bigint',
-	'boolean',
-	'date',
-	'enum',
-	'literal',
-	'never',
-	'nullable',
-	'nullish',
-	'number',
-	'object',
-	'optional',
-	'record',
-	'string',
-	'symbol',
-	'tuple',
-	'union'
+  "array",
+  "bigint",
+  "boolean",
+  "brand",
+  "date",
+  "default",
+  "enum",
+  "fallback",
+  "lazy",
+
+  "literal",
+  "never",
+  "nullable",
+  "nullish",
+  "number",
+
+  "object",
+  "optional",
+  "pipe",
+
+  "promise",
+  "readonly",
+  "record",
+  "string",
+  "symbol",
+  "transform",
+  "tuple",
+  "union",
+
+  "unknown",
+  "unknownAsync",
 ]);
+
 /**
  * Safety caps to reduce abuse / DoS vectors through gigantic specs.
  *
