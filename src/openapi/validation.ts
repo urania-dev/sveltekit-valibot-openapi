@@ -61,33 +61,33 @@ export function sanitizeOpenApiModule(mod: Record<string, unknown>): MultiEndpoi
  */
 const VALID_METHODS = new Set(['DELETE', 'GET', 'PATCH', 'POST', 'PUT']);
 export const VALIBOT_SUPPORTED_TYPES = new Set<string>([
-  "array",
-  "bigint",
-  "boolean",
-  "brand",
-  "date",
-  "default",
-  "enum",
-  "fallback",
-  "lazy",
-  "literal",
-  "never",
-  "nullable",
-  "nullish",
-  "number",
-  "object",
-  "optional",
-  "pipe",
-  "promise",
-  "readonly",
-  "record",
-  "string",
-  "symbol",
-  "transform",
-  "tuple",
-  "union",
-  "unknown",
-  "unknownAsync",
+	"array",
+	"bigint",
+	"boolean",
+	"brand",
+	"date",
+	"default",
+	"enum",
+	"fallback",
+	"lazy",
+	"literal",
+	"never",
+	"nullable",
+	"nullish",
+	"number",
+	"object",
+	"optional",
+	"pipe",
+	"promise",
+	"readonly",
+	"record",
+	"string",
+	"symbol",
+	"transform",
+	"tuple",
+	"union",
+	"unknown",
+	"unknownAsync",
 ]);
 
 
@@ -151,11 +151,11 @@ export function assertValibotSchema(schema: unknown, label: string): asserts sch
 }
 
 export function hasWrapped(x: unknown): x is { type: string; wrapped: unknown } {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    'wrapped' in (x as Record<string, unknown>)
-  );
+	return (
+		typeof x === 'object' &&
+		x !== null &&
+		'wrapped' in (x as Record<string, unknown>)
+	);
 }
 
 /**
@@ -451,12 +451,27 @@ function sanitizeQueryParams(raw: unknown, querySchema: unknown): Record<string,
 			allowedKeys = new Set(Object.keys(entries));
 		}
 	}
-
+if (allowedKeys && allowedKeys.size > 0) {
+    const extraDocs = Object.keys(raw).filter(k => !allowedKeys!.has(k));
+    if (extraDocs.length > 0) {
+        const allowed = Array.from(allowedKeys).sort().join(', ');
+        const extras = extraDocs.join(', ');
+        throw new Error(
+            `[openapi] The following documented query parameters do not exist in the query schema: ${extras}\n` +
+            `Allowed parameters from the schema: ${allowed}\n` +
+            `Fix: ensure schema and documentation lists match exactly.`
+        );
+    }
+}
 	for (const [key, doc] of Object.entries(raw)) {
 		if (allowedKeys && !allowedKeys.has(key)) {
-			throw new Error(`[openapi] queryParams["${key}"] does not match any field in query schema`);
+			const allowed = Array.from(allowedKeys).sort().join(', ');
+			throw new Error(
+				`[openapi] Query parameter "${key}" is documented in "queryParams" but missing in the "query" schema.\n` +
+				`The query schema defines: ${allowed}\n` +
+				`Add "${key}" to the Valibot query schema or remove it from "queryParams".`
+			);
 		}
-
 		assertSafePlainRecord(doc, `queryParams["${key}"]`);
 		clean[key] = Object.freeze({ ...(doc as Record<string, unknown>) });
 	}

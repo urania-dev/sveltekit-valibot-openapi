@@ -1074,8 +1074,11 @@ async function unwrapModule<TEndpoint extends EndpointDef>(
       (maybe ?? {}) as Record<string, unknown>
     );
     return sanitized as MultiEndpointModule<TEndpoint>;
-  } catch {
-    // not a valid _openapi module, fall through
+  } catch(err) {
+    getLogger().error(
+        "[openapi] Failed to sanitize _openapi module",
+        { error: err instanceof Error ? err.message : String(err) }
+    );
   }
 
   if (typeof maybe === "function" && maybe.length === 0) {
