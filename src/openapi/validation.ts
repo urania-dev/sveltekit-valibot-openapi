@@ -70,6 +70,7 @@ export const VALIBOT_SUPPORTED_TYPES = new Set<string>([
 	'literal',
 	'never',
 	'nullable',
+	'nullish',
 	'number',
 	'object',
 	'optional',
