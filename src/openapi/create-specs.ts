@@ -501,163 +501,6 @@ export function inferPathParamsFromPath(
 }
 
 /**
- * Converts a record:
- *   { "media/type": valibotSchema, ... }
- * into OpenAPI content entries:
- *   { "media/type": { schema: JSONSchema } }
- *
- * Strict rules:
- * - Media types must be syntactically valid. No silent fallback.
- * - Each schema is validated as a Valibot schema; invalid inputs trigger a
- *   precise error pointing to the offending media type.
- *
- * - Normalisation includes async → sync stripping, date → string, removing
- *   `never`, and budget checks (node count, depth).
- *
- * - Output is deterministic; ordering matches Object.entries ordering.
- */
-function convertContentMap(
-  content: Record<string, unknown>,
-  typeMode: "input" | "output"
-): Record<string, OpenApiMediaTypeObject> {
-  const out: Record<string, OpenApiMediaTypeObject> = {};
-
-  for (const [mediaType, schema] of Object.entries(content)) {
-    if (typeof mediaType !== "string" || !isValidMediaType(mediaType)) {
-      throw new Error(`[openapi] Invalid media type: "${mediaType}"`);
-    }
-    if (!schema) continue;
-
-    assertValibotSchema(schema, `content["${mediaType}"]`);
-
-    const jsonSchema = toCleanJsonSchema(schema, typeMode);
-    out[mediaType] = { schema: jsonSchema };
-  }
-
-  return out;
-}
-
-/**
- * Detects if a Valibot schema is async (`schema.async === true`).
- */
-function isAsyncSchema(
-  schema: unknown
-): schema is BaseSchemaAsync<unknown, unknown, BaseIssue<unknown>> {
-  if (!isValibotSchema(schema)) return false;
-
-  const s = schema as { async?: unknown };
-  return s.async === true;
-}
-
-/**
- * normalizeAsync:
- *
- * Valibot async schemas cannot be converted by @valibot/to-json-schema.
- * They often wrap fully static structure behind async transforms, so the
- * correct approach is to *erase async behavior* while keeping the shape.
- *
- * What this does:
- * - objectAsync → object
- * - arrayAsync → array
- * - unionAsync → union
- * - optionalAsync / nullableAsync → optional / nullable
- * - pipeAsync → unwrap to inner schema
- *
- * What this does NOT do:
- * - execute async logic
- * - preserve async transformation semantics
- * - evaluate default values or server-side validation rules
- *
- */
-function normalizeAsync(
-  _schema: unknown,
-  depth = 0
-): BaseSchema<unknown, unknown, BaseIssue<unknown>> {
-  if (!isAsyncSchema(_schema)) {
-    return _schema as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
-  }
-
-  if (depth > MAX_SCHEMA_DEPTH) {
-    return v.object({}) as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
-  }
-
-  const schema = _schema as BaseSchemaAsync<
-    unknown,
-    unknown,
-    BaseIssue<unknown>
-  >;
-  const { type } = schema;
-
-  if (type === "object") {
-    const entries =
-      ("entries" in schema &&
-        (schema as { entries?: Record<string, unknown> }).entries) ||
-      {};
-    const converted: Record<
-      string,
-      BaseSchema<unknown, unknown, BaseIssue<unknown>>
-    > = {};
-
-    for (const [k, vSchema] of Object.entries(entries)) {
-      converted[k] = normalizeAsync(vSchema, depth + 1);
-    }
-    return v.object(converted) as BaseSchema<
-      unknown,
-      unknown,
-      BaseIssue<unknown>
-    >;
-  }
-
-  if (type === "array" && "item" in schema) {
-    const item = (schema as { item?: unknown }).item;
-    return v.array(normalizeAsync(item, depth + 1)) as BaseSchema<
-      unknown,
-      unknown,
-      BaseIssue<unknown>
-    >;
-  }
-
-  if (type === "optional" && "wrapped" in schema) {
-    const wrapped = (schema as { wrapped?: unknown }).wrapped;
-    return v.optional(normalizeAsync(wrapped, depth + 1)) as BaseSchema<
-      unknown,
-      unknown,
-      BaseIssue<unknown>
-    >;
-  }
-
-  if (type === "nullable" && "wrapped" in schema) {
-    const wrapped = (schema as { wrapped?: unknown }).wrapped;
-    return v.nullable(normalizeAsync(wrapped, depth + 1)) as BaseSchema<
-      unknown,
-      unknown,
-      BaseIssue<unknown>
-    >;
-  }
-
-  if (type === "union" && "options" in schema) {
-    const options = (schema as { options?: unknown[] }).options ?? [];
-    const normalized = options.map((o) => normalizeAsync(o, depth + 1));
-    return v.union(normalized) as BaseSchema<
-      unknown,
-      unknown,
-      BaseIssue<unknown>
-    >;
-  }
-
-  if (type === "pipe") {
-    const inner =
-      ("inner" in schema && (schema as { inner?: unknown }).inner) ??
-      ("value" in schema && (schema as { value?: unknown }).value) ??
-      schema;
-
-    return normalizeAsync(inner, depth + 1);
-  }
-
-  return schema as unknown as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
-}
-
-/**
  * Deep structural normalization for Valibot → JSON Schema conversion.
  *
  * Enforces global safety constraints:
@@ -685,7 +528,7 @@ function normalizeAsync(
  *   forcing callers to reject the schema rather than silently emitting
  *   garbage.
  */
-function normalizeSchema(schema: unknown, budget: SchemaTraversalBudget): AnySchema | undefined {
+export function normalizeSchema(schema: unknown, budget: SchemaTraversalBudget): AnySchema | undefined {
 	if (budget.nodeCount++ > MAX_SCHEMA_NODES) {
 		throw new Error('[openapi] Schema node limit exceeded');
 	}
@@ -744,7 +587,35 @@ function normalizeSchema(schema: unknown, budget: SchemaTraversalBudget): AnySch
 		normalizedSchemaCache.set(key, rebuilt);
 		return rebuilt;
 	}
+if (type === "nullish") {
+  const wrapped = hasWrapped(base) ? base.wrapped : undefined;
 
+  // If no inner schema: fallback to string|null
+  if (!wrapped) {
+    const fallback = v.union([v.string(), v.null()]) as AnySchema;
+    normalizedSchemaCache.set(key, fallback);
+    return fallback;
+  }
+
+  const inner = normalizeSchema(wrapped, {
+    ...budget,
+    depth: budget.depth + 1
+  });
+
+  // inner unreadable -> fallback
+  if (!inner) {
+    const fallback = v.union([v.string(), v.null()]) as AnySchema;
+    normalizedSchemaCache.set(key, fallback);
+    return fallback;
+  }
+
+  // semantic mapping:
+  // nullish(inner) = optional(nullable(inner))
+  const rebuilt = v.optional(v.nullable(inner as BaseSchema<unknown,unknown,BaseIssue<unknown>>)) as AnySchema;
+
+  normalizedSchemaCache.set(key, rebuilt);
+  return rebuilt;
+}
 	if (type === 'nullable') {
 		if (!hasWrapped(base)) {
 			normalizedSchemaCache.set(key, undefined);
@@ -975,6 +846,163 @@ if (type === 'optional' || type === 'nullable') {
 
 	normalizedSchemaCache.set(key, base);
 	return base;
+}
+
+/**
+ * Converts a record:
+ *   { "media/type": valibotSchema, ... }
+ * into OpenAPI content entries:
+ *   { "media/type": { schema: JSONSchema } }
+ *
+ * Strict rules:
+ * - Media types must be syntactically valid. No silent fallback.
+ * - Each schema is validated as a Valibot schema; invalid inputs trigger a
+ *   precise error pointing to the offending media type.
+ *
+ * - Normalisation includes async → sync stripping, date → string, removing
+ *   `never`, and budget checks (node count, depth).
+ *
+ * - Output is deterministic; ordering matches Object.entries ordering.
+ */
+function convertContentMap(
+  content: Record<string, unknown>,
+  typeMode: "input" | "output"
+): Record<string, OpenApiMediaTypeObject> {
+  const out: Record<string, OpenApiMediaTypeObject> = {};
+
+  for (const [mediaType, schema] of Object.entries(content)) {
+    if (typeof mediaType !== "string" || !isValidMediaType(mediaType)) {
+      throw new Error(`[openapi] Invalid media type: "${mediaType}"`);
+    }
+    if (!schema) continue;
+
+    assertValibotSchema(schema, `content["${mediaType}"]`);
+
+    const jsonSchema = toCleanJsonSchema(schema, typeMode);
+    out[mediaType] = { schema: jsonSchema };
+  }
+
+  return out;
+}
+
+/**
+ * Detects if a Valibot schema is async (`schema.async === true`).
+ */
+function isAsyncSchema(
+  schema: unknown
+): schema is BaseSchemaAsync<unknown, unknown, BaseIssue<unknown>> {
+  if (!isValibotSchema(schema)) return false;
+
+  const s = schema as { async?: unknown };
+  return s.async === true;
+}
+
+/**
+ * normalizeAsync:
+ *
+ * Valibot async schemas cannot be converted by @valibot/to-json-schema.
+ * They often wrap fully static structure behind async transforms, so the
+ * correct approach is to *erase async behavior* while keeping the shape.
+ *
+ * What this does:
+ * - objectAsync → object
+ * - arrayAsync → array
+ * - unionAsync → union
+ * - optionalAsync / nullableAsync → optional / nullable
+ * - pipeAsync → unwrap to inner schema
+ *
+ * What this does NOT do:
+ * - execute async logic
+ * - preserve async transformation semantics
+ * - evaluate default values or server-side validation rules
+ *
+ */
+function normalizeAsync(
+  _schema: unknown,
+  depth = 0
+): BaseSchema<unknown, unknown, BaseIssue<unknown>> {
+  if (!isAsyncSchema(_schema)) {
+    return _schema as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
+  }
+
+  if (depth > MAX_SCHEMA_DEPTH) {
+    return v.object({}) as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
+  }
+
+  const schema = _schema as BaseSchemaAsync<
+    unknown,
+    unknown,
+    BaseIssue<unknown>
+  >;
+  const { type } = schema;
+
+  if (type === "object") {
+    const entries =
+      ("entries" in schema &&
+        (schema as { entries?: Record<string, unknown> }).entries) ||
+      {};
+    const converted: Record<
+      string,
+      BaseSchema<unknown, unknown, BaseIssue<unknown>>
+    > = {};
+
+    for (const [k, vSchema] of Object.entries(entries)) {
+      converted[k] = normalizeAsync(vSchema, depth + 1);
+    }
+    return v.object(converted) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
+
+  if (type === "array" && "item" in schema) {
+    const item = (schema as { item?: unknown }).item;
+    return v.array(normalizeAsync(item, depth + 1)) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
+
+  if (type === "optional" && "wrapped" in schema) {
+    const wrapped = (schema as { wrapped?: unknown }).wrapped;
+    return v.optional(normalizeAsync(wrapped, depth + 1)) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
+
+  if (type === "nullable" && "wrapped" in schema) {
+    const wrapped = (schema as { wrapped?: unknown }).wrapped;
+    return v.nullable(normalizeAsync(wrapped, depth + 1)) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
+
+  if (type === "union" && "options" in schema) {
+    const options = (schema as { options?: unknown[] }).options ?? [];
+    const normalized = options.map((o) => normalizeAsync(o, depth + 1));
+    return v.union(normalized) as BaseSchema<
+      unknown,
+      unknown,
+      BaseIssue<unknown>
+    >;
+  }
+
+  if (type === "pipe") {
+    const inner =
+      ("inner" in schema && (schema as { inner?: unknown }).inner) ??
+      ("value" in schema && (schema as { value?: unknown }).value) ??
+      schema;
+
+    return normalizeAsync(inner, depth + 1);
+  }
+
+  return schema as unknown as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
 }
 
 
