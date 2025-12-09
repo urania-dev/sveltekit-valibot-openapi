@@ -620,6 +620,7 @@ export function normalizeSchema(
   const SIMPLE_PASSTHROUGH = new Set<string>([
     "bigint",
     "boolean",
+    "date",
     "enum",
     "literal",
     "number",
@@ -632,12 +633,6 @@ export function normalizeSchema(
   if (SIMPLE_PASSTHROUGH.has(type)) {
     normalizedSchemaCache.set(key, base);
     return base;
-  }
-
-  if (type === "date") {
-    const mapped = v.string() as AnySchema;
-    normalizedSchemaCache.set(key, mapped);
-    return mapped;
   }
 
   if (type === "never") {

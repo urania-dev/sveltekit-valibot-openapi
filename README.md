@@ -26,6 +26,7 @@ pnpm add @uraniadev/sveltekit-valibot-openapi valibot @valibot/to-json-schema
 ```
 
 ---
+
 ## 📘 Defining endpoints
 
 Endpoints are declared by exporting a `_openapi` object from your SvelteKit route module.
@@ -79,19 +80,19 @@ export const _openapi = {
 
 ### ✔ What `defineEndpoint()` supports
 
-* `query`: **object-like only** (object / optional / nullable / pipe / union-of-objects)
-* `queryParams`: extra documentation aligned with `query`
-* `body`:
+- `query`: **object-like only** (object / optional / nullable / pipe / union-of-objects)
+- `queryParams`: extra documentation aligned with `query`
+- `body`:
+  - a schema → emitted as `application/json`
+  - or a `{ content: { "media/type": schema } }` map
 
-  * a schema → emitted as `application/json`
-  * or a `{ content: { "media/type": schema } }` map
-* `responses`:
+- `responses`:
+  - `{ schema }`
+  - `{ content: { "media/type": schema } }`
+  - both (JSON fallback auto-added)
 
-  * `{ schema }`
-  * `{ content: { "media/type": schema } }`
-  * both (JSON fallback auto-added)
-* `tags`, `summary`, `description`, `deprecated`
-* per-endpoint `security`
+- `tags`, `summary`, `description`, `deprecated`
+- per-endpoint `security`
 
 ## 📡 Generating and exposing the OpenAPI spec
 
@@ -195,18 +196,18 @@ is documented as:
 
 All body definitions undergo strict validation:
 
-* media types validated (`type/subtype`)
-* schemas must be valid Valibot schemas
-* description length capped
-* full deep-frozen sanitized output
+- media types validated (`type/subtype`)
+- schemas must be valid Valibot schemas
+- description length capped
+- full deep-frozen sanitized output
 
 ## 📤 Responses
 
 A response may define:
 
-* a single JSON schema (`schema`)
-* a `content` map
-* or both
+- a single JSON schema (`schema`)
+- a `content` map
+- or both
 
 ```ts
 responses: {
@@ -227,20 +228,20 @@ responses: {
 
 Rules enforced by sanitization:
 
-* status keys **must be numeric 3-digit codes**
-* unknown keys rejected
-* description length capped
-* schemas validated + normalized asynchronously
-* content media types validated
-* max 32 responses per endpoint
+- status keys **must be numeric 3-digit codes**
+- unknown keys rejected
+- description length capped
+- schemas validated + normalized asynchronously
+- content media types validated
+- max 32 responses per endpoint
 
 ## 🔍 Query Parameters
 
 `query` must be **object-like**:
 
-* `object(...)`
-* wrapped in `optional`, `nullable`, `nullish`, `pipe`, `brand`, `fallback`, `default`
-* unions of objects **only if all branches expose identical keys**
+- `object(...)`
+- wrapped in `optional`, `nullable`, `nullish`, `pipe`, `brand`, `fallback`, `default`
+- unions of objects **only if all branches expose identical keys**
 
 Unsupported shapes (primitives, arrays) are rejected.
 
@@ -254,12 +255,12 @@ const Query = v.object({
 
 The generator:
 
-* unwraps wrapper types
-* validates union shapes
-* rejects mismatched branches
-* extracts top-level fields only
-* produces OpenAPI `in: "query"` parameters
-* merges documentation from `queryParams`
+- unwraps wrapper types
+- validates union shapes
+- rejects mismatched branches
+- extracts top-level fields only
+- produces OpenAPI `in: "query"` parameters
+- merges documentation from `queryParams`
 
 Array-typed query values are permitted and documented normally.
 
@@ -269,17 +270,16 @@ Array-typed query values are permitted and documented normally.
 
 Every `_openapi` module is sanitized before inclusion:
 
-* must be **plain**, **prototype-free** objects
-* forbidden keys: `__proto__`, `constructor`, `prototype`
-* no getters/setters
-* max 32 methods per module
-* endpoint definitions validated strictly:
-
-  * allowed keys only
-  * required `method` and `responses`
-  * tags capped, doc strings capped
-  * body/query/responses validated structurally
-  * deep-frozen immutable output
+- must be **plain**, **prototype-free** objects
+- forbidden keys: `__proto__`, `constructor`, `prototype`
+- no getters/setters
+- max 32 methods per module
+- endpoint definitions validated strictly:
+  - allowed keys only
+  - required `method` and `responses`
+  - tags capped, doc strings capped
+  - body/query/responses validated structurally
+  - deep-frozen immutable output
 
 This prevents prototype pollution, malformed metadata, and unbounded structures from entering your spec.
 
@@ -289,20 +289,20 @@ This prevents prototype pollution, malformed metadata, and unbounded structures 
 
 Valibot schemas go through a full structural normalization step:
 
-* async schemas → sync structure
-* `date()` → `{ type: "string", format: "date-time" }`
-* `never()` removed
-* wrapper unwrapping
-* union normalization
-* array nesting bounded
+- async schemas → sync structure
+- `date()` → `{ type: "string", format: "date-time" }`
+- `never()` removed
+- wrapper unwrapping
+- union normalization
+- array nesting bounded
 
 To prevent runaway or malicious schemas:
 
-* max depth: **32**
-* max nodes: **10,000**
-* max union options: **32**
-* max object properties: **128**
-* max array nesting: **16**
+- max depth: **32**
+- max nodes: **10,000**
+- max union options: **32**
+- max object properties: **128**
+- max array nesting: **16**
 
 Invalid or pathological schemas fail early with explicit errors.
 
@@ -312,10 +312,10 @@ Invalid or pathological schemas fail early with explicit errors.
 
 Schemas used in request/response bodies are automatically:
 
-* normalized
-* converted to JSON Schema
-* deduplicated
-* registered under `#/components/schemas/...`
+- normalized
+- converted to JSON Schema
+- deduplicated
+- registered under `#/components/schemas/...`
 
 This avoids excessive inlining and makes the generated spec tooling-friendly.
 
@@ -338,10 +338,7 @@ If an endpoint has tags, the generator aggregates them into a sorted list:
 
 ```json
 {
-  "tags": [
-    { "name": "Users" },
-    { "name": "Todos" }
-  ]
+  "tags": [{ "name": "Users" }, { "name": "Todos" }]
 }
 ```
 
@@ -351,9 +348,9 @@ If an endpoint has tags, the generator aggregates them into a sorted list:
 
 Your generator now:
 
-* infers OpenAPI paths from route files (`[id]` → `{id}`)
-* extracts path parameters and documents them automatically
-* ensures all path parameters are required and typed
+- infers OpenAPI paths from route files (`[id]` → `{id}`)
+- extracts path parameters and documents them automatically
+- ensures all path parameters are required and typed
 
 Example:
 
