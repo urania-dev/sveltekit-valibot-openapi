@@ -11,15 +11,18 @@ import type {
   HttpMethodLower,
   JsonSchema,
   MultiEndpointModule,
+  OpenApiComponents,
   OpenApiMediaTypeObject,
   OpenApiOptions,
   OpenApiParameterObject,
   OpenApiResponsesObject,
   OpenApiSpec,
+  OpenApiTagObject,
   OperationObject,
   PathsObject,
   QueryParameterDocs,
   ResponseDef,
+  SchemaRegistry,
 } from "./types.ts";
 
 import { getLogger, setOpenApiLogger, shortenFilePath } from "./logger.js";
@@ -80,7 +83,6 @@ export function convertQueryToParameters(
     getLogger().error("[openapi] Failed to convert query schema", {
       message: err instanceof Error ? err.message : String(err),
     });
-    // Do NOT kill the endpoint – just emit no query parameters.
     return [];
   }
 
@@ -94,7 +96,8 @@ export function convertQueryToParameters(
   const requiredList = Array.isArray(obj.required) ? obj.required : [];
   const requiredSet = new Set(requiredList);
 
-  const supportedTypes = new Set(["boolean", "integer", "number", "string"]);
+  // improved: allow array-typed query params as well
+  const supportedTypes = new Set(["array", "boolean", "integer", "number", "string"]);
 
   const params: OpenApiParameterObject[] = [];
 
@@ -102,8 +105,8 @@ export function convertQueryToParameters(
     if (!propSchema || typeof propSchema !== "object") continue;
 
     const typed = propSchema as Exclude<JsonSchema, boolean>;
-    const typeField = typed.type;
-    const enumField = typed.enum;
+    const typeField = (typed as { type?: string | string[] }).type;
+    const enumField = (typed as { enum?: (boolean | null | number | string)[] }).enum;
 
     const types = Array.isArray(typeField)
       ? typeField
@@ -151,7 +154,6 @@ export function convertQueryToParameters(
   return params;
 }
 
-
 /**
  * Converts endpoint response definitions into an OpenAPI 3.1 `responses` object.
  *
@@ -174,7 +176,9 @@ export function convertQueryToParameters(
  *   no `$schema` keyword, no transforms.
  */
 export function convertResponses(
-  responses: EndpointResponses
+  responses: EndpointResponses,
+  schemaRegistry?: SchemaRegistry,
+  operationHint?: string
 ): OpenApiResponsesObject {
   const out: OpenApiResponsesObject = {};
 
@@ -190,7 +194,9 @@ export function convertResponses(
     if (def.content) {
       const converted = convertContentMap(
         def.content as Record<string, unknown>,
-        "output"
+        "output",
+        schemaRegistry,
+        operationHint ? `${operationHint}_${status}` : undefined
       );
       if (Object.keys(converted).length > 0) {
         content = { ...(content ?? {}), ...converted };
@@ -204,9 +210,14 @@ export function convertResponses(
 
       if (!hasJson) {
         const jsonSchema = toCleanJsonSchema(def.schema, "output");
+        const schemaWithRef = registerComponentSchema(
+          schemaRegistry,
+          jsonSchema,
+          operationHint ? `${operationHint}_${status}_application_json` : undefined
+        );
         content = {
           ...(content ?? {}),
-          "application/json": { schema: jsonSchema },
+          "application/json": { schema: schemaWithRef },
         };
       }
     }
@@ -220,7 +231,6 @@ export function convertResponses(
 
   return out;
 }
-
 /**
  * Generates an OpenAPI 3.1 specification object for all routes matched by an
  * `import.meta.glob` call.
@@ -279,6 +289,7 @@ export async function createOpenApiSpec<
 
   const paths: PathsObject = {};
   const logger = getLogger();
+  const schemaRegistry = createSchemaRegistry();
 
   for (const [file, loader] of Object.entries(modules)) {
     const loaded = await loader();
@@ -298,13 +309,25 @@ export async function createOpenApiSpec<
         const lower = toLowerHttpMethod(def.method);
         if (!paths[path]) paths[path] = {};
 
+        const operationHint =
+          def.operationId ??
+          `${def.method}_${path.replace(/\W+/g, "_")}`.replace(/^_+|_+$/g, "");
+
         const operation: OperationObject = {
           description: def.description,
           operationId: def.operationId,
-          responses: convertResponses(def.responses as EndpointResponses),
+          responses: convertResponses(
+            def.responses as EndpointResponses,
+            schemaRegistry,
+            operationHint
+          ),
           summary: def.summary,
           tags: def.tags,
         };
+
+        if (!operation.summary && operation.description) {
+          operation.summary = inferSummary(operation.description);
+        }
 
         if (def.deprecated !== undefined) {
           operation.deprecated = def.deprecated;
@@ -354,7 +377,12 @@ export async function createOpenApiSpec<
             };
 
             if (contentMap && Object.keys(contentMap).length > 0) {
-              const content = convertContentMap(contentMap, "input");
+              const content = convertContentMap(
+                contentMap,
+                "input",
+                schemaRegistry,
+                `${operationHint}_request`
+              );
               if (Object.keys(content).length > 0) {
                 operation.requestBody = {
                   ...(description !== undefined ? { description } : {}),
@@ -364,10 +392,15 @@ export async function createOpenApiSpec<
               }
             }
           } else {
-            const schema = toCleanJsonSchema(def.body, "input");
+            const jsonSchema = toCleanJsonSchema(def.body, "input");
+            const schemaWithRef = registerComponentSchema(
+              schemaRegistry,
+              jsonSchema,
+              `${operationHint}_request_application_json`
+            );
             operation.requestBody = {
               content: {
-                "application/json": { schema },
+                "application/json": { schema: schemaWithRef },
               },
               required: true,
             };
@@ -400,20 +433,34 @@ export async function createOpenApiSpec<
       : {}),
   };
 
+  const components: OpenApiComponents | undefined = (() => {
+    const schemas =
+      hasRegistrySchemas(schemaRegistry) && schemaRegistry.componentsSchemas
+        ? schemaRegistry.componentsSchemas
+        : undefined;
+    const securitySchemes = options.securitySchemes;
+
+    if (!schemas && !securitySchemes) return undefined;
+
+    const out: OpenApiComponents = {};
+    if (schemas) out.schemas = schemas;
+    if (securitySchemes) out.securitySchemes = securitySchemes;
+    return out;
+  })();
+
   const spec: OpenApiSpec = {
     info,
     openapi: "3.1.0",
     paths,
+    ...(components ? { components } : {}),
     ...(options.servers ? { servers: options.servers } : {}),
-    ...(options.securitySchemes
-      ? {
-          components: {
-            securitySchemes: options.securitySchemes,
-          },
-        }
-      : {}),
     ...(options.security ? { security: options.security } : {}),
   };
+
+  const autoTags = buildTagsFromPaths(paths);
+  if (autoTags.length > 0) {
+    spec.tags = autoTags;
+  }
 
   return spec;
 }
@@ -666,7 +713,6 @@ export function normalizeSchema(
       return rebuilt;
     }
 
-    // readonly / default / fallback / brand / transform / pipe / lazy / promise
     normalizedSchemaCache.set(key, normInner);
     return normInner;
   }
@@ -792,9 +838,83 @@ export function normalizeSchema(
     return clone;
   }
 
-  // record, tuple, etc. – leave as-is, rely on Valibot's converter
   normalizedSchemaCache.set(key, base);
   return base;
+}
+
+/**
+ * Build a sorted tag list from all operations.
+ */
+function buildTagsFromPaths(paths: PathsObject): OpenApiTagObject[] {
+  const counts = new Map<string, number>();
+
+  for (const pathOps of Object.values(paths)) {
+    if (!pathOps) continue;
+    for (const op of Object.values(pathOps)) {
+      if (!op || !op.tags) continue;
+      for (const tag of op.tags) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+  }
+
+  const entries = Array.from(counts.entries()).map(([name, count]) => ({
+    count,
+    name,
+  }));
+
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+
+  return entries.map(({ name }) => ({ name }));
+}
+
+/**
+ * If `schema.anyOf` is exactly `[T, {type:"null"}]` or vice versa,
+ * compact it into `type: [T,"null"]` and drop `anyOf`.
+ */
+function compactNullability(schema: {
+  [key: string]: unknown;
+}): { [key: string]: unknown } {
+  const anyOf = schema.anyOf as JsonSchema[] | undefined;
+  if (!anyOf || anyOf.length !== 2) return schema;
+
+  const [a, b] = anyOf;
+  const aIsNull = isSimpleNullSchema(a);
+  const bIsNull = isSimpleNullSchema(b);
+
+  if (!aIsNull && !bIsNull) return schema;
+
+  const main = aIsNull ? b : a;
+  if (typeof main !== "object" || main === null) return schema;
+
+  const mainObj = main as { [key: string]: unknown };
+  const existingType = mainObj.type;
+
+  let nextType: string | string[];
+
+  if (Array.isArray(existingType)) {
+    const types = existingType.includes("null")
+      ? existingType
+      : [...existingType, "null"];
+    nextType = types;
+  } else if (typeof existingType === "string") {
+    if (existingType === "null") {
+      nextType = "null";
+    } else {
+      nextType = [existingType, "null"];
+    }
+  } else {
+    nextType = ["null"];
+  }
+
+  const merged: { [key: string]: unknown } = {};
+  for (const key of Object.keys(mainObj)) {
+    if (key === "type") continue;
+    merged[key] = mainObj[key];
+  }
+  merged.type = nextType;
+
+  return merged;
 }
 
 /**
@@ -815,7 +935,9 @@ export function normalizeSchema(
  */
 function convertContentMap(
   content: Record<string, unknown>,
-  typeMode: "input" | "output"
+  typeMode: "input" | "output",
+  schemaRegistry?: SchemaRegistry,
+  nameHint?: string
 ): Record<string, OpenApiMediaTypeObject> {
   const out: Record<string, OpenApiMediaTypeObject> = {};
 
@@ -828,10 +950,45 @@ function convertContentMap(
     assertValibotSchema(schema, `content["${mediaType}"]`);
 
     const jsonSchema = toCleanJsonSchema(schema, typeMode);
-    out[mediaType] = { schema: jsonSchema };
+    const schemaWithRef = registerComponentSchema(
+      schemaRegistry,
+      jsonSchema,
+      nameHint ? `${nameHint}_${mediaType}` : undefined
+    );
+    out[mediaType] = { schema: schemaWithRef };
   }
 
   return out;
+}
+
+function createSchemaRegistry(): SchemaRegistry {
+  return {
+    bySchema: new WeakMap<object, string>(),
+    componentsSchemas: Object.create(null) as Record<string, JsonSchema>,
+    counter: 0,
+  };
+}
+
+function hasRegistrySchemas(registry: SchemaRegistry): boolean {
+  return Object.keys(registry.componentsSchemas).length > 0;
+}
+
+/**
+ * Summary generator: first sentence or truncated description.
+ */
+function inferSummary(description: string): string {
+  const trimmed = description.trim();
+  if (!trimmed) return "";
+
+  const sentenceEndMatch = trimmed.match(/[.!?]\s/);
+  if (sentenceEndMatch && sentenceEndMatch.index !== undefined) {
+    const idx = sentenceEndMatch.index + 1;
+    return trimmed.slice(0, idx).trim();
+  }
+
+  const maxLen = 96;
+  if (trimmed.length <= maxLen) return trimmed;
+  return `${trimmed.slice(0, maxLen - 1).trimEnd()}…`;
 }
 
 /**
@@ -844,6 +1001,14 @@ function isAsyncSchema(
 
   const s = schema as { async?: unknown };
   return s.async === true;
+}
+
+function isSimpleNullSchema(schema: JsonSchema): boolean {
+  if (typeof schema !== "object" || schema === null) return false;
+  const obj = schema as { [key: string]: unknown };
+  const type = obj.type;
+  const keys = Object.keys(obj);
+  return type === "null" && keys.length === 1;
 }
 
 /**
@@ -954,6 +1119,115 @@ function normalizeAsync(
   return schema as unknown as BaseSchema<unknown, unknown, BaseIssue<unknown>>;
 }
 
+/**
+ * Post-process JSON Schema for:
+ * - nullability compaction: anyOf([T, {type:"null"}]) → type: [T,"null"]
+ * - recursive traversal; $defs are preserved as-is
+ */
+function postProcessJsonSchema(schema: JsonSchema): JsonSchema {
+  if (typeof schema === "boolean") return schema;
+
+  const seen = new WeakSet<object>();
+
+  const walk = (node: JsonSchema): JsonSchema => {
+    if (typeof node === "boolean") return node;
+    const obj = node as { [key: string]: unknown };
+    const keyObj = obj as object;
+    if (seen.has(keyObj)) return obj;
+    seen.add(keyObj);
+
+    const properties = obj.properties as
+      | Record<string, JsonSchema>
+      | undefined;
+    if (properties && typeof properties === "object") {
+      for (const key of Object.keys(properties)) {
+        properties[key] = walk(properties[key]);
+      }
+    }
+
+    const items = obj.items as JsonSchema | JsonSchema[] | undefined;
+    if (items) {
+      if (Array.isArray(items)) {
+        obj.items = items.map((i) => walk(i));
+      } else {
+        obj.items = walk(items);
+      }
+    }
+
+    const prefixItems = obj.prefixItems as JsonSchema[] | undefined;
+    if (Array.isArray(prefixItems)) {
+      obj.prefixItems = prefixItems.map((i) => walk(i));
+    }
+
+    const anyOf = obj.anyOf as JsonSchema[] | undefined;
+    if (Array.isArray(anyOf)) {
+      obj.anyOf = anyOf.map((i) => walk(i));
+      const compacted = compactNullability(obj);
+      return compacted;
+    }
+
+    const allOf = obj.allOf as JsonSchema[] | undefined;
+    if (Array.isArray(allOf)) {
+      obj.allOf = allOf.map((i) => walk(i));
+    }
+
+    const oneOf = obj.oneOf as JsonSchema[] | undefined;
+    if (Array.isArray(oneOf)) {
+      obj.oneOf = oneOf.map((i) => walk(i));
+    }
+
+    const not = obj.not as JsonSchema | undefined;
+    if (not) {
+      obj.not = walk(not);
+    }
+
+    const defs = obj.$defs as Record<string, JsonSchema> | undefined;
+    if (defs && typeof defs === "object") {
+      for (const key of Object.keys(defs)) {
+        defs[key] = walk(defs[key]);
+      }
+    }
+
+    return obj;
+  };
+
+  return walk(schema);
+}
+function registerComponentSchema(
+  registry: SchemaRegistry | undefined,
+  schema: JsonSchema,
+  hint?: string
+): JsonSchema {
+  if (!registry) return schema;
+  if (typeof schema === "boolean") return schema;
+
+  const key = schema as object;
+  const existing = registry.bySchema.get(key);
+  if (existing) {
+    return { $ref: `#/components/schemas/${existing}` };
+  }
+
+  const baseName = sanitizeSchemaComponentName(
+    hint ?? `Schema_${registry.counter + 1}`
+  );
+
+  let name = baseName;
+  let index = 1;
+  while (Object.prototype.hasOwnProperty.call(registry.componentsSchemas, name)) {
+    name = `${baseName}_${index++}`;
+  }
+
+  registry.bySchema.set(key, name);
+  registry.componentsSchemas[name] = schema;
+
+  return { $ref: `#/components/schemas/${name}` };
+}
+
+function sanitizeSchemaComponentName(base: string): string {
+  const trimmed = base.trim();
+  const safe = trimmed.replace(/[^A-Za-z0-9_.-]/g, "_");
+  return safe || "Schema";
+}
 
 /**
  * Final conversion pipeline from Valibot → OpenAPI JSON Schema.
@@ -1031,8 +1305,9 @@ function toCleanJsonSchema(
     $schema?: string;
   } & Exclude<JsonSchema, boolean>;
 
-  schemaCache.set(key, rest);
-  return rest;
+  const processed = postProcessJsonSchema(rest);
+  schemaCache.set(key, processed);
+  return processed;
 }
 
 /**

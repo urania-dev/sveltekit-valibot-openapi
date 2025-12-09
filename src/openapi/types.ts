@@ -13,14 +13,6 @@ export type AnySchema<TInput = unknown, TOutput = unknown> =
   | BaseSchemaAsync<TInput, TOutput, BaseIssue<unknown>>;
 
 /**
- * A schema accepted by the library or a Promise resolving to one.
- *
- * Many projects produce schemas asynchronously (e.g. generated or loaded
- * dynamically). `SchemaLike` accepts either a `AnySchema` or a
- * `` so route authors don't need to cast.
- */
-
-/**
  * Describes a single documented API operation.
  *
  * This structure is exported from route modules and consumed by the OpenAPI
@@ -274,21 +266,104 @@ export interface OpenApiComponents {
   schemas?: Record<string, JsonSchema>;
   securitySchemes?: Record<string, SecuritySchemeObject>;
 }
+/**
+ * The reusable components section of the generated OpenAPI specification.
+ *
+ * This object collects named elements that can be referenced across the
+ * entire spec instead of being duplicated inline. It acts as a shared
+ * registry for schemas and security schemes.
+ *
+ * Currently supported component types:
+ * - `schemas`: reusable JSON Schemas for request/response bodies, parameters, etc.
+ * - `securitySchemes`: authentication and authorization mechanisms (bearer, API key, OAuth2…)
+ *
+ * These are automatically populated by the generator when deduplication or
+ * merging logic detects identical schemas, and can also be provided manually
+ * through the generator’s `options.securitySchemes`.
+ *
+ * The structure is intentionally minimal — compliant with OpenAPI 3.1, but
+ * trimmed to the subset this library uses and guarantees to produce.
+ */
+export interface OpenApiComponents {
+  schemas?: Record<string, JsonSchema>;
+  securitySchemes?: Record<string, SecuritySchemeObject>;
+}
 
-/** Top-level OpenAPI `info` section. */
+
+/**
+ * Metadata describing the API itself.
+ *
+ * This corresponds to the top-level `info` object in the OpenAPI 3.1
+ * specification and identifies the published API version, its title, and
+ * optional free-form description.
+ *
+ * These fields do not affect validation or behavior; they exist purely for
+ * documentation, client generation, and UI rendering (Scalar, Redoc, Swagger UI).
+ *
+ * Example:
+ * ```json
+ * {
+ *   "title": "Snapp Public API",
+ *   "version": "1.0.0",
+ *   "description": "Programmatic access to Snapp links and analytics."
+ * }
+ * ```
+ */
 export interface OpenApiInfo {
   description?: string;
   title?: string;
   version?: string;
 }
 
+/**
+ * Minimal logging contract used internally by the generator.
+ *
+ * A user-supplied logger can be passed via `OpenApiOptions.logger` to capture
+ * diagnostics, transformation errors, and schema-conversion issues during
+ * spec generation. The interface mirrors common logging frameworks while
+ * staying transport-agnostic.
+ *
+ * The generator never throws for non-fatal issues when a logger is present;
+ * it reports them through these callbacks instead.
+ *
+ * Example adapter:
+ * ```ts
+ * const logger: OpenApiLogger = {
+ *   error: (msg, meta) => console.error(msg, meta),
+ *   warn:  (msg, meta) => console.warn(msg, meta)
+ * };
+ * ```
+ */
 export interface OpenApiLogger {
   error(message: string, meta?: unknown): void;
   warn(message: string, meta?: unknown): void;
 }
 
-/** Media type object inside an OpenAPI response or request body. */
+/**
+ * Describes a single media type entry within a request or response body.
+ *
+ * In OpenAPI, every body content map is a dictionary of
+ * `"media/type" → MediaTypeObject`, where each value can include a schema
+ * and optionally encoding or examples (not exposed here for simplicity).
+ *
+ * Example:
+ * ```json
+ * {
+ *   "application/json": {
+ *     "schema": { "$ref": "#/components/schemas/User" }
+ *   },
+ *   "text/plain": {
+ *     "schema": { "type": "string" }
+ *   }
+ * }
+ * ```
+ *
+ * This interface models only the subset the generator emits — a pure schema
+ * mapping — since encoding and examples are derived from Valibot data rather
+ * than declared manually.
+ */
 export interface OpenApiMediaTypeObject {
+    /** The JSON Schema describing the structure of the media type’s payload. */
   schema?: JsonSchema;
 }
 
@@ -309,7 +384,6 @@ export interface OpenApiOptions {
   securitySchemes?: Record<string, SecuritySchemeObject>;
   servers?: OpenApiServer[];
 }
-
 /** OpenAPI Parameter Object. */
 export interface OpenApiParameterObject {
   description?: string;
@@ -330,6 +404,7 @@ export interface OpenApiParameterObject {
 
   schema?: JsonSchema;
 }
+
 /** OpenAPI Request Body Object. */
 export interface OpenApiRequestBodyObject {
   content: Record<string, OpenApiMediaTypeObject>;
@@ -337,12 +412,12 @@ export interface OpenApiRequestBodyObject {
   required?: boolean;
 }
 
+
 /** OpenAPI Response Object. */
 export interface OpenApiResponseObject {
   content?: Record<string, OpenApiMediaTypeObject>;
   description: string;
 }
-
 
 /** OpenAPI map of status code → response. */
 export type OpenApiResponsesObject = Record<string, OpenApiResponseObject>;
@@ -352,6 +427,7 @@ export interface OpenApiServer {
   description?: string;
   url: string;
 }
+
 
 /**
  * Structure returned by the generated OpenAPI handler.
@@ -363,11 +439,17 @@ export interface OpenApiSpec {
   components?: OpenApiComponents;
   info: {
     description?: string;
-  } & Required<Pick<OpenApiInfo, 'title' | 'version'>>;
-  openapi: '3.1.0';
+  } & Required<Pick<OpenApiInfo, "title" | "version">>;
+  openapi: "3.1.0";
   paths: PathsObject;
   security?: SecurityRequirementObject[];
   servers?: OpenApiServer[];
+  tags?: OpenApiTagObject[];
+}
+
+export interface OpenApiTagObject {
+  description?: string;
+  name: string;
 }
 
 /**
@@ -490,6 +572,12 @@ export interface ResponseDef<
   schema?: TSchema;
 }
 
+export interface SchemaRegistry {
+  bySchema: WeakMap<object, string>;
+  componentsSchemas: Record<string, JsonSchema>;
+  counter: number;
+}
+
 /**
  * OpenAPI Security Requirement Object.
  *
@@ -497,6 +585,7 @@ export interface ResponseDef<
  * `components.securitySchemes`, and the values are the required scopes.
  */
 export type SecurityRequirementObject = Record<string, string[]>;
+
 
 /**
  * OpenAPI Security Scheme Object.
