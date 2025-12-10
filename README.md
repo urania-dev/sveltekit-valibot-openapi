@@ -338,7 +338,7 @@ If an endpoint has tags, the generator aggregates them into a sorted list:
 
 ```json
 {
-  "tags": [{ "name": "Users" }, { "name": "Todos" }]
+  "tags": ["Users", "Todo"]
 }
 ```
 

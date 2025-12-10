@@ -4,4 +4,4 @@ dist
 bun.lockb
 **.tgz
 .**
-debug
+debug.ts
